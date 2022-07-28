@@ -1,0 +1,412 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.url
+import jk.log
+import jk.sha
+import jk.json
+import jk.model
+import jk.webclient
+
+class:
+
+prop context as AwsApiContext
+
+ctor(context as AwsApiContext):
+	this.context = context
+
+func toDynamicMap(value as object) as DynamicMap
+{
+	if value {
+		if value is DynamicMap:
+			return value as! DynamicMap
+		if value is DynamicModel {
+			var v = (value as! DynamicModel).toDynamicMap()
+			if v:
+				return v
+		}
+	}
+	return new DynamicMap()
+}
+
+func debugRequest(request as AwsSignatureV4.HttpRequestInfo, message as string) private
+{
+	var sb = new StringBuilder()
+	sb.appendString(request.method)
+	sb.appendCharacter(' ')
+	sb.appendString(request.url)
+	sb.appendString(" HTTP/1.1\n")
+	if request.headers {
+		foreach header in request.headers.asVector() {
+			sb.appendString(header.key)
+			sb.appendString(": ")
+			sb.appendString(header.value)
+			sb.appendString("\n")
+		}
+	}
+	sb.appendString("\n")
+	if request.body:
+		sb.appendString(String.forUTF8Buffer(request.body))
+	Log.debug(context.log, "REQUEST " .. message .. ":\n---\n" .. sb.toString() .. "\n---\n")
+}
+
+func debugResponse(response as WebClient.Response)
+{
+	var sb = new StringBuilder()
+	if not response {
+		sb.appendString("(no response)")
+	}
+	else {
+		sb.appendString(response.statusCode)
+		sb.appendCharacter('\n')
+		if response.headers {
+			foreach header in response.headers.asVector() {
+				sb.appendString(header.key)
+				sb.appendString(": ")
+				sb.appendString(header.value)
+				sb.appendString("\n")
+			}
+		}
+		sb.appendString("\n")
+		sb.appendString(String.forUTF8Buffer(response.body))
+	}
+	Log.debug(context.log, "RESPONSE:\n---\n" .. sb.toString() .. "\n---\n")
+}
+
+func getResponseType(response as WebClient.Response) as string
+{
+	assert response
+	foreach header in response.headers.asVector() {
+		if String.equalsIgnoreCase(header.key, "content-type") {
+			var ct = Vector.get(String.split(header.value, ';'), 0)
+			if ct == "application/json" || ct == "text/json":
+				return "json"
+			if ct == "application/xml" || ct == "text/xml":
+				return "xml"
+			if ct == "application/octet-stream":
+				return "buffer"
+			return ct
+		}
+	}
+	return null
+}
+
+func decodeXmlResponse(response as WebClient.Response, apispec as DynamicMap, resultType as typeinfo) as DynamicMap
+{
+	var resultWrapper = apispec.getString("resultWrapper")
+	var bodys = String.forUTF8Buffer(response.body)
+	var v = new AwsXmlResponseParser(context.log).parseString(bodys, resultWrapper, resultType) as DynamicMap
+	if not v:
+		Error.throw("failedToParseXmlResponse", bodys)
+	return v
+}
+
+func decodeJsonResponse(response as WebClient.Response, apispec as DynamicMap) as object:
+	return JSONParser.parseBuffer(response.body)
+
+func encodeParameterToQueryStringMap(key as string, value as object, map as map<string,string>)
+{
+	if value {
+		var dm = value as DynamicMap
+		if dm {
+			foreach nkey in dm.getKeys():
+				encodeParameterToQueryStringMap(key .. "." .. nkey, dm.get(nkey), map)
+			return
+		}
+		var dv = value as DynamicVector
+		if dv {
+			var n = 1
+			foreach value in dv.toVector():
+				encodeParameterToQueryStringMap(key .. ".member." .. String.forInteger(n++), value, map)
+			return
+		}
+	}
+	Map.set(map, key, String.asString(value))
+}
+
+func encodeParametersToQueryStringMap(parameters as DynamicMap, map as map<string,string>)
+{
+	assert parameters
+	foreach key in parameters.getKeys():
+		encodeParameterToQueryStringMap(key, parameters.get(key), map)
+}
+
+model AwsError #dynamic
+{
+	Code as string
+	Message as string
+}
+
+func handleXmlError(error as string)
+{
+	var ee = new AwsXmlResponseParser(context.log).parseString(error, "Error", typeinfo AwsError) as DynamicMap
+	if ee:
+		Error.throw("awsRequestError", JSONEncoder.toCompactString(ee))
+}
+
+func handleJsonError(error as string)
+{
+	var eo = JSONParser.parseString(error)
+	if eo:
+		Error.throw("awsRequestError", JSONEncoder.toCompactString(eo))
+}
+
+func handleAsError(response as WebClient.Response)
+{
+	var rt = getResponseType(response)
+	if rt == "xml":
+		handleXmlError(String.forUTF8Buffer(response.body))
+	if rt == "json":
+		handleJsonError(String.forUTF8Buffer(response.body))
+	Error.throw("awsRequestError", response.statusCode)
+}
+
+func substitutePathParameters(path as string, parameters as DynamicMap) as string
+{
+	if not String.contains(path, "{"):
+		return path
+	var n = 0
+	var sb = new StringBuilder()
+	loop {
+		var open = String.getIndexOfCharacter(path, '{', n)
+		var close = -1
+		if open >= 0:
+			close = String.getIndexOfCharacter(path, '}', open)
+		if open >= 0 && close > open {
+			var prefix = String.getSubString(path, n, open-n)
+			var varname = String.getSubString(path, open+1, close-open-1)
+			if String.isNotEmpty(prefix):
+				sb.appendString(prefix)
+			if String.isNotEmpty(varname) {
+				var varvalue = parameters.getString(varname)
+				parameters.remove(varname)
+				if String.isNotEmpty(varvalue):
+					sb.appendString(varvalue)
+			}
+			n = close+1
+		}
+		else {
+			var rest = String.getEndOfString(path, n)
+			if String.isNotEmpty(rest):
+				sb.appendString(rest)
+			break
+		}
+	}
+	return sb.toString()
+}
+
+func getTagValue(field as DynamicModelField, key as string) as string
+{
+	assert field
+	assert key
+	var prefix = key .. "="
+	foreach tag in field.tags {
+		if String.startsWith(tag, prefix):
+			return String.getEndOfString(tag, String.getLength(prefix))
+	}
+	return null
+}
+
+func getHeaderFromResponse(response as WebClient.Response, header as string) as string
+{
+	assert response
+	var hdrs = assert response.headers
+	foreach hdr in hdrs.asVector() {
+		if String.equalsIgnoreCase(hdr.key, header):
+			return hdr.value
+	}
+	return null
+}
+
+func asBuffer(data as object) as buffer
+{
+	assert data
+	if data is string:
+		return String.toUTF8Buffer(data as! string)
+	return Buffer.asBuffer(data)
+}
+
+func sha256(data as buffer) private as buffer
+{
+	var encoder = SHAEncoder.create()
+	if not encoder:
+		Error.throw("failedToCreateShaEncoder", null)
+	var dd = data
+	if not dd:
+		dd = String.toUTF8Buffer("")
+	var vv = encoder.encodeAsBuffer(dd, SHAEncoder.SHA256)
+	if not vv:
+		Error.throw("failedToShaEncode", null)
+	return vv
+}
+
+func callAwsApi(specmap as map, result as DynamicModel) async
+{
+	if not specmap:
+		Error.throw("nullApispec", null)
+	if result:
+		result.clear()
+	var apispec = DynamicMap.forMap(specmap)
+	Log.debug(context.log, "Calling AWS API: " .. JSONEncoder.toCompactString(apispec))
+	var protocol = apispec.getString("protocol")
+	var service = apispec.getString("service")
+	var method = apispec.getString("method")
+	var action = apispec.getString("action")
+	var version = apispec.getString("version")
+	var endpoint = apispec.getString("endpoint")
+	var parametersModel = apispec.get("parameters") as DynamicModel
+	if not parametersModel:
+		parametersModel = new DynamicModel()
+	var path = apispec.getString("path")
+	var headers = new KeyValueList<string,string>
+	var body as buffer
+	var queryString as string
+	// The AWS Query API
+	if protocol == "query" {
+		var parameters = toDynamicMap(parametersModel)
+		var map = new map<string,string>
+		map["Action"] = action
+		map["Version"] = version
+		encodeParametersToQueryStringMap(parameters, map)
+		Log.debug(context.log, "Query parameters: `" .. JSONEncoder.toString(map) .. "'")
+		var qs = QueryString.encode(map)
+		if method == "GET" {
+			queryString = qs
+		}
+		else {
+			headers.add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+			body = String.toUTF8Buffer(qs)
+		}
+	}
+	// EC2 API
+	else if protocol == "ec2" {
+		Error.throw("unsupportedAwsApiProtocol", protocol)
+	}
+	// AWS JSON API
+	else if protocol == "json" {
+		Error.throw("unsupportedAwsApiProtocol", protocol)
+	}
+	// AWS REST JSON/XML API
+	else if protocol == "rest-json" || protocol == "rest-xml" {
+		var uriparams = new DynamicMap()
+		var qsparams = new map<string,string>
+		foreach field in parametersModel.fields {
+			if field.hasTag("payload") {
+				if parametersModel.hasValue(field.name):
+					body = asBuffer(parametersModel.getField(field.name))
+			}
+			else {
+				var location = getTagValue(field, "location")
+				var locationName as string
+				if location {
+					locationName = getTagValue(field, "locationName")
+					if String.isEmpty(locationName):
+						locationName = field.name
+				}
+				if location == "uri" {
+					if parametersModel.hasValue(field.name):
+						uriparams.setObject(locationName, parametersModel.getField(field.name))
+				}
+				else if location == "header" {
+					if parametersModel.hasValue(field.name):
+						headers.add(locationName, String.asString(parametersModel.getField(field.name)))
+				}
+				else if location == "querystring" {
+					if parametersModel.hasValue(field.name):
+						qsparams[locationName] = String.asString(parametersModel.getField(field.name))
+				}
+				else {
+					Log.warning(context.log, "Unsupported field encountered: `" .. field.name .. "'")
+				}
+			}
+		}
+		queryString = QueryString.encode(qsparams)
+		path = substitutePathParameters(path, uriparams)
+	}
+	else {
+		Error.throw("unsupportedAwsApiProtocol", protocol)
+	}
+	headers.add("x-amz-content-sha256", String.toLowerCase(String.forBufferHex(sha256(body))))
+	var region = context.region
+	var url as string
+	if String.isNotEmpty(endpoint) {
+		url = "https://" .. endpoint .. path
+		region = "us-east-1"
+	}
+	else {
+		url = "https://" .. service .. "." .. region .. ".amazonaws.com" .. path
+	}
+	if String.isNotEmpty(queryString) {
+		Log.debug(context.log, "Query string: `" .. queryString .. "'")
+		url = url .. "?" .. queryString
+	}
+	Log.debug(context.log, "Request URL: `" .. url .. "'")
+	var request = new AwsSignatureV4.HttpRequestInfo()
+	request.method = method
+	request.url = url
+	request.headers = headers
+	request.body = body
+	debugRequest(request, "Before signing")
+	AwsSignatureV4.signRequest(context, request, service, region)
+	debugRequest(request, "After signing")
+	var response = await WebClient.instance().executeQuery(context.log, request.method, request.url, request.headers, request.body)
+	if not response:
+		Error.throw("noResponseFromQuery", request)
+	debugResponse(response)
+	if response.statusCode != "200":
+		handleAsError(response)
+	if not result:
+		return
+	if response.body {
+		foreach field in result.fields {
+			if field.hasTag("payload") {
+				result.setField(field.name, response.body)
+				response.body = null
+				break
+			}
+		}
+	}
+	if response.body {
+		var rt = getResponseType(response)
+		if rt == "xml" {
+			result.fromDynamicMap(decodeXmlResponse(response, apispec, typeof result))
+		}
+		else if rt == "json" {
+			result.fromDynamicMap(decodeJsonResponse(response, apispec) as DynamicMap)
+		}
+		else {
+			Error.throw("unsupportedResponseType", rt)
+		}
+	}
+	foreach field in result.fields {
+		if getTagValue(field, "location") == "header" {
+			var locationName = getTagValue(field, "locationName")
+			if String.isNotEmpty(locationName) {
+				var hdrval = getHeaderFromResponse(response, locationName)
+				if hdrval:
+					result.setField(field.name, hdrval)
+			}
+		}
+	}
+}

@@ -1,0 +1,161 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.sha
+import jk.log
+import jk.time
+import jk.random
+import i42.docker.model
+
+class is AzureClient:
+
+model ContainerRegistryProperties public
+{
+	name as string
+	vnetName as string
+	subnetName as string
+	skuName as string
+}
+
+func tryGetContainerRegistry(name as string) async as dynamic
+{
+	var acrClient = AzureApi.getContainerRegistryManagementClient(context)
+	if String.isEmpty(name) {
+		var list = await acrClient.registries.listByResourceGroup(context.resourceGroup)
+		if not list:
+			return null
+		return list[0]
+	}
+	try {
+		return await acrClient.registries.get(context.resourceGroup, name)
+	}
+	catch e {
+	}
+	return null
+}
+
+func tryGetContainerRegistryName async as string
+{
+	var v = await tryGetContainerRegistry(null)
+	if v:
+		return String.asString(v.name)
+	return null
+}
+
+func getContainerRegistry(name as string) async as dynamic
+{
+	var v = await tryGetContainerRegistry(name)
+	if not v:
+		Error.throw("failedToGetContainerRegistry", name)
+	return v
+}
+
+func getContainerRegistryName async as string
+{
+	var v = await getContainerRegistry(null)
+	return String.asString(v.name)
+}
+
+func generateUniqueAcrName async as string
+{
+	var v as string
+	var acrClient = AzureApi.getContainerRegistryManagementClient(context)
+	var n = 0
+	loop {
+		var seed = String.forLongInteger(SystemClock.asUTCSeconds()) .. String.forInteger(Random.getSharedInstance().nextInteger())
+		v = String.getSubString(SHAEncoder.getSha1HashForString(seed), 0, 8) .. "acr"
+		var r = await acrClient.registries.checkNameAvailability({
+			name v
+			type "Microsoft.ContainerRegistry/registries"
+		})
+		if r.nameAvailable == true:
+			break
+		n ++
+		if n > 32:
+			Error.throw("failedToGenerateUniqueAcrName", null)
+	}
+	return v
+}
+
+func updateContainerRegistry(properties as ContainerRegistryProperties) async as dynamic
+{
+	var acrName = properties.name
+	if String.isEmpty(acrName) {
+		Log.status(ctx, "[Query] Determining container registry name..")
+		var dcr = await tryGetContainerRegistry(null)
+		if dcr:
+			acrName = dcr.name
+		if String.isEmpty(acrName):
+			acrName = await generateUniqueAcrName()
+		Log.status(ctx, null)
+	}
+	var skuName = properties.skuName
+	if String.isEmpty(skuName):
+		skuName = "Basic"
+	var params = {
+		location context.location
+		sku {
+			name skuName
+		}
+		adminUserEnabled true
+		publicNetworkAccess "Enabled"
+	}
+	if String.isNotEmpty(properties.vnetName) && String.isNotEmpty(properties.subnetName) {
+		params.publicNetworkAccess = "Disabled"
+		params.sku.name = "Premium"
+	}
+	var acrv = await executeUpdate("Container Registry", func async as dynamic {
+		var acrClient = AzureApi.getContainerRegistryManagementClient(context)
+		await acrClient.registries.create(context.resourceGroup, acrName, params)
+		return await acrClient.registries.get(context.resourceGroup, acrName)
+	})
+	if String.isNotEmpty(properties.vnetName) && String.isNotEmpty(properties.subnetName) {
+		var networkClient = new AzureNetworkClient(ctx, context)
+		var vnet = await networkClient.getVirtualNetwork(properties.vnetName)
+		await networkClient.updatePrivateEndpoint(new AzureNetworkClient.PrivateEndpointProperties() {
+			resourceId String.asString(acrv.id)
+			vnetId String.asString(vnet.id)
+			subnetName properties.subnetName
+			resourceType AzureResourceType.CONTAINER_REGISTRY
+		})
+	}
+	return acrv
+}
+
+func getContainerRegistryCredentials(acrName as string) async as dynamic
+{
+	var acrClient = AzureApi.getContainerRegistryManagementClient(context)
+	return await acrClient.registries.listCredentials(context.resourceGroup, acrName)
+}
+
+func getDockerRegistryCredentials(acrName as string) async as DockerRegistryCredentials
+{
+	var acr = await getContainerRegistry(acrName)
+	var creds = await getContainerRegistryCredentials(acrName)
+	return new DockerRegistryCredentials() {
+		address String.asString(acr.loginServer)
+		username String.asString(creds.username)
+		password String.asString(creds.passwords && creds.passwords[0] && String.isNotEmpty(String.asString(creds.passwords[0].value)) ? creds.passwords[0].value : "")
+	}
+}

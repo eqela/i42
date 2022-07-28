@@ -1,0 +1,222 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import i42.docker.model
+
+class is AzureClient:
+
+model ContainerAppEnvironmentProperties public
+{
+	name as string
+	logAnalyticsWorkspaceName as string
+	vnetName as string
+	infraSubnetName as string
+	containerSubnetName as string
+}
+
+model ContainerAppDeploymentProperties public
+{
+	appEnvironmentName as string
+	registry as DockerRegistryCredentials
+}
+
+model ContainerAppProperties public
+{
+	name as string
+	image as string
+	command as string[]
+	args as string[]
+	env as DynamicMap
+	port as int
+	cpu as int
+	memory as string
+	minReplicas as int
+	maxReplicas as int
+	external as bool
+}
+
+func updateContainerAppEnvironment(properties as ContainerAppEnvironmentProperties) async as dynamic
+{
+	// https://docs.microsoft.com/en-us/azure/templates/microsoft.app/managedenvironments?tabs=bicep
+	var logAnalyticsClient = new AzureLogAnalyticsClient(ctx, context)
+	var logws as dynamic
+	var logwsname = properties.logAnalyticsWorkspaceName
+	if String.isEmpty(logwsname) {
+		logwsname = properties.name .. "-log"
+		logws = await logAnalyticsClient.updateLogAnalyticsWorkspace(new AzureLogAnalyticsClient.LogAnalyticsWorkspaceProperties() {
+			name logwsname
+		})
+	}
+	else {
+		logws = logAnalyticsClient.getLogAnalyticsWorkspace(logwsname)
+	}
+	return await executeUpdate("Container App Environment", func async as dynamic {
+		var appClient = AzureApi.getContainerAppsApiClient(context)
+		var vnetConfig as dynamic
+		if String.isNotEmpty(properties.vnetName) && String.isNotEmpty(properties.infraSubnetName) && String.isNotEmpty(properties.containerSubnetName) {
+			var anc = new AzureNetworkClient(ctx, context)
+			var infraSubnet = await anc.getSubnet(properties.vnetName, properties.infraSubnetName)
+			if not infraSubnet:
+				Error.throw("subnetNotFound", properties.vnetName .. ":" .. properties.infraSubnetName)
+			var appSubnet = await anc.getSubnet(properties.vnetName, properties.containerSubnetName)
+			if not appSubnet:
+				Error.throw("subnetNotFound", properties.vnetName .. ":" .. properties.containerSubnetName)
+			vnetConfig = {
+				internal false
+				runtimeSubnetId appSubnet.id
+				infrastructureSubnetId infraSubnet.id
+				dockerBridgeCidr "10.2.0.1/16"
+				platformReservedCidr "10.1.0.0/16"
+				platformReservedDnsIP "10.1.0.2"
+			}
+		}
+		await appClient.managedEnvironments.beginCreateOrUpdateAndWait(context.resourceGroup, properties.name, {
+			location context.location
+			appLogsConfiguration {
+				destination "log-analytics"
+				logAnalyticsConfiguration {
+					customerId String.asString(logws.customerId)
+					sharedKey await logAnalyticsClient.getLogAnalyticsWorkspaceSharedKey(logwsname)
+				}
+			}
+			vnetConfiguration vnetConfig
+		})
+		return await appClient.managedEnvironments.get(context.resourceGroup, properties.name)
+	})
+}
+
+func getContainerAppEnvironment(name as string) async as dynamic
+{
+	return await executeQuery("Container Application Environment `" .. name .. "'", func async as dynamic {
+		var appClient = AzureApi.getContainerAppsApiClient(context)
+		return await appClient.managedEnvironments.get(context.resourceGroup, name)
+	})
+}
+
+func getContainerAppEnvironmentDomainName(name as string) async as string
+{
+	var v = await getContainerAppEnvironment(name)
+	if not v:
+		return null
+	return String.asString(v.defaultDomain)
+}
+
+func updateContainerApp(deployment as ContainerAppDeploymentProperties, properties as ContainerAppProperties) async as dynamic
+{
+	var env = new vector
+	if properties.env {
+		foreach key in properties.env.getKeys() {
+			env += {
+				name key
+				value properties.env.getString(key)
+			}
+		}
+	}
+	var resources as dyno
+	if properties.cpu < 1 && String.isEmpty(properties.memory) {
+		resources = null
+	}
+	else {
+		resources = {
+			cpu properties.cpu
+			memory properties.memory
+		}
+	}
+	var scale as dyno
+	if properties.minReplicas < 1 && properties.maxReplicas < 1 {
+		scale = null
+	}
+	else {
+		scale = {
+			minReplicas properties.minReplicas
+			maxReplicas properties.maxReplicas
+		}
+	}
+	var registries as vector<dyno>
+	if not deployment.registry {
+		registries = null
+	}
+	else if not deployment.registry.address {
+		registries = null
+	}
+	else {
+		registries = [{
+			server deployment.registry.address
+			username deployment.registry.username
+			passwordSecretRef "registry-password"
+		}]
+	}
+	var secrets = []
+	if deployment.registry && String.isNotEmpty(deployment.registry.password) {
+		secrets += {
+			name "registry-password"
+			value String.asString(deployment.registry.password)
+		}
+	}
+	return await executeUpdate("Container App `" .. properties.name .. "'", func async as dynamic {
+		var appClient = AzureApi.getContainerAppsApiClient(context)
+		var environment = await appClient.managedEnvironments.get(context.resourceGroup, deployment.appEnvironmentName)
+		return await appClient.containerApps.beginCreateOrUpdateAndWait(context.resourceGroup, properties.name, {
+			location context.location
+			configuration {
+				ingress {
+					allowInsecure false
+					external properties.external
+					targetPort properties.port
+				}
+				registries registries
+				secrets secrets
+				activeRevisionsMode "single"
+			}
+			managedEnvironmentId String.asString(environment.id)
+			template {
+				containers [
+					{
+						name properties.name
+						image properties.image
+						command properties.command
+						args properties.args
+						env env
+						resources resources
+					}
+				]
+				scale scale
+			}
+		})
+	})
+}
+
+func getContainerApp(name as string) async as dynamic
+{
+	return await executeQuery("Container Application `" .. name .. "'", func async as dynamic {
+		var appClient = AzureApi.getContainerAppsApiClient(context)
+		return await appClient.containerApps.get(context.resourceGroup, name)
+	})
+}
+
+func getContainerAppOutboundIpAddresses(name as string) async as vector<string>
+{
+	var app = await getContainerApp(name)
+	return app.outboundIpAddresses as! vector<string>
+}

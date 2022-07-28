@@ -1,0 +1,6 @@
+{
+	moduleTitle "POM support"
+	moduleDescription [[
+		Support for reading and manipulating Apache Maven POM files.
+	]]
+}

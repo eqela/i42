@@ -1,0 +1,217 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.env
+import jk.log
+import jk.slon
+import jk.json
+import jk.console
+import jk.process
+
+class:
+
+prop ctx as ConsoleApplicationContext
+
+prop cmd:cmdValue as File
+{
+	get {
+		if not cmdValue {
+			cmdValue = ExternalCommand.findInPath("aws")
+			if not cmdValue:
+				Error.throw("commandNotFound", "aws")
+		}
+		return cmdValue
+	}
+}
+
+prop waitForCompletion as bool = true
+
+func execute(pl as ProcessLauncher) as int
+{
+	if ctx && ctx.isInDebugMode():
+		Log.debug(ctx, String.asString(pl))
+	return pl.execute()
+}
+
+func executeStackFile(command as string, file as File)
+{
+	if String.isEmpty(command):
+		Error.throw("noCommand", null)
+	if not file:
+		Error.throw("noFile", null)
+	var name = file.getBasenameWithoutExtension()
+	if String.isEmpty(name):
+		Error.throw("noBasename", file)
+	var ff = file
+	var tmpfile as File
+	if file.hasExtension("slon") {
+		var data = SLONParser.forFile(file).acceptObject()
+		if not data:
+			Error.throw("failedToParseSlonFile", file)
+		tmpfile = TemporaryFile.create()
+		if not tmpfile:
+			Error.throw("failedToCreateTemporaryFile", null)
+		tmpfile.setContentsUTF8(JSONEncoder.toString(data))
+		ff = tmpfile
+	}
+	var error as exception
+	try {
+		var pl = ProcessLauncher.forFile(cmd)
+		pl.addToParams("cloudformation")
+		pl.addToParams(command)
+		pl.addToParams("--stack-name")
+		pl.addToParams(name)
+		pl.addToParams("--template-body")
+		pl.addToParams("file://" .. ff.getPath())
+		Log.info(ctx, "Executing `" .. command .. "' for stack `" .. name .. "' ..")
+		var r = execute(pl)
+		if r != 0 {
+			var dd = new DynamicMap()
+			dd.setObject("file", ff)
+			dd.setString("command", command)
+			dd.setObject("launcher", pl)
+			dd.setInteger("returnValue", r)
+			Error.throw("failedCloudformationCommand", dd)
+		}
+		if waitForCompletion {
+			var wcmd as string
+			if command == "create-stack" {
+				wcmd = "stack-create-complete"
+			}
+			else if command == "update-stack" {
+				wcmd = "stack-update-complete"
+			}
+			if wcmd {
+				var pl2 = ProcessLauncher.forFile(cmd)
+				pl2.addToParams("cloudformation")
+				pl2.addToParams("wait")
+				pl2.addToParams(wcmd)
+				pl2.addToParams("--stack-name")
+				pl2.addToParams(name)
+				Log.info(ctx, "Waiting for operation to complete: `" .. name .. "' ..")
+				var r2 = execute(pl2)
+				if r2 != 0 {
+					var dd = new DynamicMap()
+					dd.setString("command", "wait")
+					dd.setString("waitCommand", wcmd)
+					dd.setObject("launcher", pl2)
+					dd.setInteger("returnValue", r2)
+					Error.throw("failedCloudformationCommand", dd)
+				}
+			}
+		}
+	}
+	catch e as exception {
+		error = e
+	}
+	if tmpfile:
+		tmpfile.remove()
+	if error:
+		throw error
+}
+
+func createStack(file as File):
+	executeStackFile("create-stack", file)
+
+func updateStack(file as File):
+	executeStackFile("update-stack", file)
+
+func deleteStack(name as string)
+{
+	if String.isEmpty(name):
+		Error.throw("noStackName", null)
+	var pl = ProcessLauncher.forFile(cmd)
+	pl.addToParams("cloudformation")
+	pl.addToParams("delete-stack")
+	pl.addToParams("--stack-name")
+	pl.addToParams(name)
+	Log.info(ctx, "Deleting stack `" .. name .. "' ..")
+	var r = execute(pl)
+	if r != 0 {
+		var dd = new DynamicMap()
+		dd.setString("command", "delete-stack")
+		dd.setObject("launcher", pl)
+		dd.setInteger("returnValue", r)
+		Error.throw("failedCloudformationCommand", dd)
+	}
+	if waitForCompletion {
+		var pl2 = ProcessLauncher.forFile(cmd)
+		pl2.addToParams("cloudformation")
+		pl2.addToParams("wait")
+		pl2.addToParams("stack-delete-complete")
+		pl2.addToParams("--stack-name")
+		pl2.addToParams(name)
+		Log.info(ctx, "Waiting for stack `" .. name .. "' to be deleted ..")
+		var r2 = execute(pl2)
+		if r2 != 0 {
+			var dd = new DynamicMap()
+			dd.setString("command", "wait")
+			dd.setString("waitCommand", "stack-delete-complete")
+			dd.setObject("launcher", pl2)
+			dd.setInteger("returnValue", r2)
+			Error.throw("failedCloudformationCommand", dd)
+		}
+	}
+}
+
+func reCreateStack(file as File)
+{
+	if not file:
+		Error.throw("noFile", null)
+	var name = file.getBasenameWithoutExtension()
+	if String.isEmpty(name):
+		Error.throw("noBasename", file)
+	deleteStack(name)
+	createStack(file)
+}
+
+main
+{
+	var ctx = new ConsoleApplicationContext()
+	var action = args[0]
+	var param = args[1]
+	if String.isEmpty(action) || String.isEmpty(param) {
+		Log.error(ctx, "Expected parameters: <action> <param>")
+		return 1
+	}
+	var o = new this()
+	o.ctx = ctx
+	if action == "create" {
+		o.createStack(File.forPath(param))
+	}
+	else if action == "update" {
+		o.updateStack(File.forPath(param))
+	}
+	else if action == "delete" {
+		o.deleteStack(param)
+	}
+	else if action == "recreate" {
+		o.reCreateStack(File.forPath(param))
+	}
+	else {
+		Log.error(ctx, "Unsupported action: " .. action)
+	}
+	return 0
+}

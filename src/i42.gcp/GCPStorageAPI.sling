@@ -1,0 +1,395 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.json
+
+class is GCPAPI:
+
+// API Reference: https://cloud.google.com/storage/docs/json_api/v1
+
+model ObjectResource
+{
+	id as string
+	selfLink as string
+	name as string
+	bucket as string
+	generation as int
+	metageneration as int
+	contentType as string
+	timeCreated as string
+	updated as string
+	timeDeleted as string
+	temporaryHold as bool
+	eventBasedHold as bool
+	retentionExpirationTime as string
+	storageClass as string
+	timeStorageClassUpdated as string
+	size as int
+	md5Hash as string
+	mediaLink as string
+	contentEncoding as string
+	contentDisposition as string
+	contentLanguage as string
+	cacheControl as string
+	// metadata
+	// acl
+	// owner
+	crc32c as string
+	componentCount as int
+	etag as string
+	// customerEncryption
+	kmsKeyName as string
+}
+
+model BucketResource
+{
+	id as string
+	selfLink as string
+	projectNumber as int
+	name as string
+	timeCreated as string
+	udpated as string
+	defaultEventBasedHold as bool
+	// retentionPolicy
+	metageneration as int
+	// acl
+	// defaultObjectAcl
+	// iamConfiguration
+	// encryption
+	// owner
+	location as string
+	locationType as string
+	// website
+	// logging
+	// versioning
+	// cors
+	// lifecycle
+	// labels
+	storageClass as string
+	// billing
+	etag as string
+}
+
+macro REQUIRE_BUCKET_NAME
+{
+	if String.isEmpty(bucket):
+		Error.throw("noBucketName", "No storage bucket name")
+}
+
+macro REQUIRE_OBJECT_NAME
+{
+	if String.isEmpty(name):
+		Error.throw("noBucketObjectName", "No name given for storage bucket object")
+}
+
+ctor(session as GCPSession):
+	setSession(session)
+
+// Buckets API: https://cloud.google.com/storage/docs/json_api/v1#Buckets
+
+func deleteBucket(bucket as string) async
+{
+	meta {
+		description "Permanently deletes an empty bucket."
+	}
+	INITIALIZE_GCP_OPERATION()
+	REQUIRE_BUCKET_NAME()
+	var url = "https://storage.googleapis.com/storage/v1/b/" .. safeName(bucket)
+	await request("DELETE", url, headers, null)
+}
+
+func getBucketMetadata(bucket as string) async as BucketResource
+{
+	meta {
+		description "Returns metadata for the specified bucket."
+	}
+	INITIALIZE_GCP_OPERATION()
+	REQUIRE_BUCKET_NAME()
+	var url = "https://storage.googleapis.com/storage/v1/b/" .. safeName(bucket) .. "?projection=full"
+	var resp = await request("GET", url, headers, null)
+	var responseBody = resp.getBodyAsDynamicMap()
+	var v = BucketResource.forData(responseBody)
+	if not v:
+		ON_INVALID_RESPONSE_DATA()
+	return v
+}
+
+func getBucketIamPolicy
+{
+	meta {
+		description "Returns an IAM policy for the specified bucket."
+	}
+	// FIXME
+}
+
+func insertBucket(project as string, bucket as BucketResource) async as BucketResource
+{
+	meta {
+		description "Creates a new bucket."
+	}
+	INITIALIZE_GCP_OPERATION()
+	REQUIRE_PROJECT_NAME()
+	if not bucket:
+		Error.throw("noBucketData", "No bucket data provided for insertBucket")
+	var url = "https://storage.googleapis.com/storage/v1/b?project=" .. safeName(project)
+	var json = JSONEncoder.encode(bucket.toJsonObject())
+	var body = String.toUTF8Buffer(json)
+	ADD_CONTENT_TYPE_JSON()
+	var resp = await request("POST", url, headers, body)
+	var responseBody = resp.getBodyAsDynamicMap()
+	var v = BucketResource.forData(responseBody)
+	if not v:
+		ON_INVALID_RESPONSE_DATA()
+	return v
+}
+
+func listBuckets(project as string) async as vector<BucketResource>
+{
+	meta {
+		description "Retrieves a list of buckets for a given project."
+	}
+	INITIALIZE_GCP_OPERATION()
+	REQUIRE_PROJECT_NAME()
+	var url = "https://storage.googleapis.com/storage/v1/b"
+	var resp = await request("GET", url, headers, null)
+	var responseBody = resp.getBodyAsDynamicMap()
+	var items = responseBody.getDynamicVector("items")
+	if not items:
+		Error.throw("noItems", "No items in response.")
+	var v = new vector<BucketResource>
+	foreach map as DynamicMap in items.toVector() {
+		var o = BucketResource.forData(map)
+		if not o:
+			ON_INVALID_RESPONSE_DATA()
+		v += o
+	}
+	return v
+}
+
+func lockBucketRetentionPolicy
+{
+	meta {
+		description "Irreversibly sets the retention policy on a bucket."
+	}
+	// FIXME
+}
+
+func patchBucket
+{
+	meta {
+		description [[
+			Updates a bucket. Changes to the bucket will be readable immediately after writing,
+			but configuration changes may take time to propagate.
+		]]
+	}
+	// FIXME
+}
+
+func setBucketIamPolicy
+{
+	meta {
+		description "Updates an IAM policy for the specified bucket."
+	}
+	// FIXME
+}
+
+func testBucketIamPermissions
+{
+	meta {
+		description "Tests a set of permissions on the given bucket to see which, if any, are held by the caller."
+	}
+	// FIXME
+}
+
+func updateBucket
+{
+	meta {
+		description [[
+			Updates a bucket. Changes to the bucket will be readable immediately after writing, but configuration
+			changes may take time to propagate. This method sets the complete metadata of a bucket. If you want to
+			change some of the metadata while leaving other parts unaffected, use the patchBucket method instead.
+		]]
+	}
+	// FIXME
+}
+
+// Channels API: https://cloud.google.com/storage/docs/json_api/v1#Channels
+
+// DefaultObjectAccessControls API: https://cloud.google.com/storage/docs/json_api/v1#DefaultObjectAccessControls
+
+// Notifications API: https://cloud.google.com/storage/docs/json_api/v1#Notifications
+
+// ObjectAccessControls API: https://cloud.google.com/storage/docs/json_api/v1#ObjectAccessControls
+
+// Objects API: https://cloud.google.com/storage/docs/json_api/v1#Objects
+
+func composeObject
+{
+	meta {
+		description "Concatenates a list of existing objects into a new object in the same bucket."
+	}
+	// FIXME
+}
+
+func copyObject(bucket as string, name as string, destbucket as string, destname as string) async as ObjectResource
+{
+	meta {
+		description "Copies a source object to a destination object."
+	}
+	INITIALIZE_GCP_OPERATION()
+	REQUIRE_BUCKET_NAME()
+	REQUIRE_OBJECT_NAME()
+	if String.isEmpty(destbucket):
+		Error.throw("noBucketName", "No destination storage bucket name")
+	if String.isEmpty(destname):
+		Error.throw("noObjectName", "No object name given for destination storage object")
+	var url = "https://storage.googleapis.com/storage/v1/b/" .. safeName(bucket) .. "/o/" .. safeName(name) .. "/copyTo/b/" .. safeName(destbucket) .. "/o/" .. safeName(destname)
+	var resp = await request("POST", url, headers, null)
+	var responseBody = resp.getBodyAsDynamicMap()
+	var v = ObjectResource.forData(responseBody)
+	if not v:
+		ON_INVALID_RESPONSE_DATA()
+	return v
+}
+
+func deleteObject(bucket as string, name as string) async
+{
+	meta {
+		description [[
+			Deletes an object and its metadata. Deletions are permanent if versioning is
+			not enabled for the bucket, or if the generation parameter is used.
+		]]
+	}
+	INITIALIZE_GCP_OPERATION()
+	REQUIRE_BUCKET_NAME()
+	REQUIRE_OBJECT_NAME()
+	var url = "https://storage.googleapis.com/storage/v1/b/" .. safeName(bucket) .. "/o/" .. safeName(name)
+	await request("DELETE", url, headers, null)
+}
+
+func getObjectMedia(bucket as string, object as string) async as buffer
+{
+	meta {
+		description "Retrieves an object."
+	}
+	INITIALIZE_GCP_OPERATION()
+	REQUIRE_BUCKET_NAME()
+	var url = "https://storage.googleapis.com/storage/v1/b/" .. safeName(bucket) .. "/o/" .. safeName(object) .. "?alt=media"
+	var resp = await request("GET", url, headers, null)
+	return resp.getBodyAsBuffer()
+}
+
+func getObjectMetadata(bucket as string, object as string) async as ObjectResource
+{
+	meta {
+		description "Retrieves the metadata of an object."
+	}
+	INITIALIZE_GCP_OPERATION()
+	REQUIRE_BUCKET_NAME()
+	var url = "https://storage.googleapis.com/storage/v1/b/" .. safeName(bucket) .. "/o/" .. safeName(object) .. "?alt=json"
+	var resp = await request("GET", url, headers, null)
+	var responseBody = resp.getBodyAsDynamicMap()
+	var v = ObjectResource.forData(responseBody)
+	if not v:
+		ON_INVALID_RESPONSE_DATA()
+	return v
+}
+
+func insertObject(bucket as string, name as string, data as buffer, mimetype as string) async as ObjectResource
+{
+	meta {
+		description "Stores a new object and metadata."
+	}
+	INITIALIZE_GCP_OPERATION()
+	REQUIRE_BUCKET_NAME()
+	REQUIRE_OBJECT_NAME()
+	headers.add("Content-Length", String.forLongInteger(Buffer.getSize(data)))
+	headers.add("Content-Type", mimetype)
+	var url = "https://storage.googleapis.com/upload/storage/v1/b/" .. safeName(bucket) .. "/o?uploadType=media&name=" .. safeName(name)
+	var resp = await request("POST", url, headers, data)
+	var responseBody = resp.getBodyAsDynamicMap()
+	var v = ObjectResource.forData(responseBody)
+	if not v:
+		ON_INVALID_RESPONSE_DATA()
+	return v
+}
+
+func listObjects(bucket as string) async as vector<ObjectResource>
+{
+	meta {
+		description "Retrieves a list of objects."
+	}
+	INITIALIZE_GCP_OPERATION()
+	REQUIRE_BUCKET_NAME()
+	var url = "https://storage.googleapis.com/storage/v1/b/" .. safeName(bucket) .. "/o?projection=full"
+	var resp = await request("GET", url, headers, null)
+	var responseBody = resp.getBodyAsDynamicMap()
+	var items = responseBody.getDynamicVector("items")
+	if not items:
+		Error.throw("noItems", "No items in response.")
+	var v = new vector<ObjectResource>
+	foreach map as DynamicMap in items.toVector() {
+		var o = ObjectResource.forData(map)
+		if not o:
+			ON_INVALID_RESPONSE_DATA()
+		v += o
+	}
+	return v
+}
+
+func patchObject
+{
+	meta {
+		description "Updates a data blob's associated metadata. This method supports patch semantics."
+	}
+	// FIXME
+}
+
+func rewriteObject
+{
+	meta {
+		description "Rewrites a source object to a destination object. Optionally overrides metadata."
+	}
+	// FIXME
+}
+
+func updateObject
+{
+	meta {
+		description "Updates an object's metadata."
+	}
+	// FIXME
+}
+
+func watchAllObjects
+{
+	meta {
+		description "Watch for changes on all objects in a bucket."
+	}
+	// FIXME
+}
+
+// Projects.hmacKeys API: https://cloud.google.com/storage/docs/json_api/v1#Projects.hmacKeys
+
+// Projects.serviceAccount API: https://cloud.google.com/storage/docs/json_api/v1#Projects.serviceAccount

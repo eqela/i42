@@ -1,0 +1,151 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+// Reference: https://docs.microsoft.com/en-us/azure/virtual-machines/sizes-general
+
+// Easy-to-use aliases
+const Dev1GB = "Standard_B1s"
+const Dev2GB = "Standard_B1ms"
+const Dev4GB = "Standard_B2s"
+const Dev8GB = "Standard_B2ms"
+const Dev16GB = "Standard_B4ms"
+const Prod3GB = "Standard_DS1_v2"
+const Prod7GB = "Standard_DS2_v2"
+const Prod14GB = "Standard_DS3_v2"
+const Prod28GB = "Standard_DS4_v2"
+
+// Av2-series
+// https://docs.microsoft.com/en-us/azure/virtual-machines/av2-series
+const Standard_A1_v2 = "Standard_A1_v2"
+const Standard_A2_v2 = "Standard_A2_v2"
+const Standard_A4_v2 = "Standard_A4_v2"
+const Standard_A8_v2 = "Standard_A8_v2"
+const Standard_A2m_v2 = "Standard_A2m_v2"
+const Standard_A4m_v2 = "Standard_A4m_v2"
+const Standard_A8m_v2 = "Standard_A8m_v2"
+
+// B-series burstable
+// https://docs.microsoft.com/en-us/azure/virtual-machines/sizes-b-series-burstable
+const Standard_B1ls = "Standard_B1ls"
+const Standard_B1s = "Standard_B1s"
+const Standard_B1ms = "Standard_B1ms"
+const Standard_B2s = "Standard_B2s"
+const Standard_B2ms = "Standard_B2ms"
+const Standard_B4ms = "Standard_B4ms"
+const Standard_B8ms = "Standard_B8ms"
+const Standard_B12ms = "Standard_B12ms"
+const Standard_B16ms = "Standard_B16ms"
+const Standard_B20ms = "Standard_B20ms"
+
+// DCsv2-series
+// https://docs.microsoft.com/en-us/azure/virtual-machines/dcv2-series
+const Standard_DC1s_v2 = "Standard_DC1s_v2"
+const Standard_DC2s_v2 = "Standard_DC2s_v2"
+const Standard_DC4s_v2 = "Standard_DC4s_v2"
+const Standard_DC8_v2 = "Standard_DC8_v2"
+
+// Dv2 and DSv2-series
+// https://docs.microsoft.com/en-us/azure/virtual-machines/dv2-dsv2-series
+const Standard_D1_v2 = "Standard_D1_v2"
+const Standard_D2_v2 = "Standard_D2_v2"
+const Standard_D3_v2 = "Standard_D3_v2"
+const Standard_D4_v2 = "Standard_D4_v2"
+const Standard_D5_v2 = "Standard_D5_v2"
+const Standard_DS1_v2 = "Standard_DS1_v2"
+const Standard_DS2_v2 = "Standard_DS2_v2"
+const Standard_DS3_v2 = "Standard_DS3_v2"
+const Standard_DS4_v2 = "Standard_DS4_v2"
+const Standard_DS5_v2 = "Standard_DS5_v2"
+
+// Dv3 and Dsv3-series
+// https://docs.microsoft.com/en-us/azure/virtual-machines/dv3-dsv3-series
+const Standard_D2_v3 = "Standard_D2_v3"
+const Standard_D4_v3 = "Standard_D4_v3"
+const Standard_D8_v3 = "Standard_D8_v3"
+const Standard_D16_v3 = "Standard_D16_v3"
+const Standard_D32_v3 = "Standard_D32_v3"
+const Standard_D48_v3 = "Standard_D48_v3"
+const Standard_D64_v3 = "Standard_D64_v3"
+const Standard_D2s_v3 = "Standard_D2s_v3"
+const Standard_D4s_v3 = "Standard_D4s_v3"
+const Standard_D8s_v3 = "Standard_D8s_v3"
+const Standard_D16s_v3 = "Standard_D16s_v3"
+const Standard_D32s_v3 = "Standard_D32s_v3"
+const Standard_D48s_v3 = "Standard_D48s_v3"
+const Standard_D64s_v3 = "Standard_D64s_v3"
+
+// Dav4 and Dasv4-series
+// https://docs.microsoft.com/en-us/azure/virtual-machines/dav4-dasv4-series
+const Standard_D2a_v4 = "Standard_D2a_v4"
+const Standard_D4a_v4 = "Standard_D4a_v4"
+const Standard_D8a_v4 = "Standard_D8a_v4"
+const Standard_D16a_v4 = "Standard_D16a_v4"
+const Standard_D32a_v4 = "Standard_D32a_v4"
+const Standard_D48a_v4 = "Standard_D48a_v4"
+const Standard_D64a_v4 = "Standard_D64a_v4"
+const Standard_D96a_v4 = "Standard_D96a_v4"
+const Standard_D2as_v4 = "Standard_D2as_v4"
+const Standard_D4as_v4 = "Standard_D4as_v4"
+const Standard_D8as_v4 = "Standard_D8as_v4"
+const Standard_D16as_v4 = "Standard_D16as_v4"
+const Standard_D32as_v4 = "Standard_D32as_v4"
+const Standard_D48as_v4 = "Standard_D48as_v4"
+const Standard_D64as_v4 = "Standard_D64as_v4"
+const Standard_D96as_v4 = "Standard_D96as_v4"
+
+// Ddv4 and Ddsv4-series
+// https://docs.microsoft.com/en-us/azure/virtual-machines/ddv4-ddsv4-series
+const Standard_D2d_v4 = "Standard_D2d_v4"
+const Standard_D4d_v4 = "Standard_D4d_v4"
+const Standard_D8d_v4 = "Standard_D8d_v4"
+const Standard_D16d_v4 = "Standard_D16d_v4"
+const Standard_D32d_v4 = "Standard_D32d_v4"
+const Standard_D48d_v4 = "Standard_D48d_v4"
+const Standard_D64d_v4 = "Standard_D64d_v4"
+const Standard_D2ds_v4 = "Standard_D2ds_v4"
+const Standard_D4ds_v4 = "Standard_D4ds_v4"
+const Standard_D8ds_v4 = "Standard_D8ds_v4"
+const Standard_D16ds_v4 = "Standard_D16ds_v4"
+const Standard_D32ds_v4 = "Standard_D32ds_v4"
+const Standard_D48ds_v4 = "Standard_D48ds_v4"
+const Standard_D64ds_v4 = "Standard_D64ds_v4"
+
+// Dv4 and Dsv4-series
+// https://docs.microsoft.com/en-us/azure/virtual-machines/dv4-dsv4-series
+const Standard_D2_v4 = "Standard_D2_v4"
+const Standard_D4_v4 = "Standard_D4_v4"
+const Standard_D8_v4 = "Standard_D8_v4"
+const Standard_D16_v4 = "Standard_D16_v4"
+const Standard_D32_v4 = "Standard_D32_v4"
+const Standard_D48_v4 = "Standard_D48_v4"
+const Standard_D64_v4 = "Standard_D64_v4"
+const Standard_D2s_v4 = "Standard_D2s_v4"
+const Standard_D4s_v4 = "Standard_D4s_v4"
+const Standard_D8s_v4 = "Standard_D8s_v4"
+const Standard_D16s_v4 = "Standard_D16s_v4"
+const Standard_D32s_v4 = "Standard_D32s_v4"
+const Standard_D48s_v4 = "Standard_D48s_v4"
+const Standard_D64s_v4 = "Standard_D64s_v4"

@@ -1,0 +1,67 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.sha
+import jk.time
+import jk.random
+
+class:
+
+var api as GCPStorageAPI
+
+ctor(api as GCPStorageAPI)
+{
+	if not api:
+		Error.throw("nullObject", "Null api object given to GCPStorageUtil")
+	this.api = api
+}
+
+func createBucketByName(project as string, name as string) async as GCPStorageAPI.BucketResource
+{
+	var bucket = new GCPStorageAPI.BucketResource()
+	bucket.name = name
+	return await api.insertBucket(project, bucket)
+}
+
+func createUniqueBucketForProject(project as string) async as GCPStorageAPI.BucketResource
+{
+	var v as GCPStorageAPI.BucketResource
+	var random = new Random()
+	loop {
+		var n = random.nextInteger()
+		var ts = SystemClock.asUTCSeconds()
+		var ns = "bucket" .. String.forInteger(n) .. String.forLongInteger(ts)
+		var name = SHAEncoder.getSha1HashForString(ns)
+		try {
+			v = await createBucketByName(project, name)
+		}
+		catch e as ExceptionWithError {
+			if e.getErrorCode() != "gcp409":
+				throw e
+		}
+		if v:
+			break
+	}
+	return v
+}

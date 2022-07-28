@@ -1,0 +1,355 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is AzureClient:
+
+model PrivateDnsZoneProperties public
+{
+	domain as string
+	vnetId as string
+}
+
+model PrivateEndpointProperties public
+{
+	resourceId as string
+	resourceType as string
+	vnetId as string
+	subnetName as string
+	resourceName as string
+	endpointName as string
+}
+
+model SubnetProperties public
+{
+	name as string
+	block as string
+	nsgId as string
+	natGwId as string
+	delegations as string[]
+}
+
+model VirtualNetworkProperties public
+{
+	name as string
+	cidrBlock as string
+	subnetBlocks as SubnetProperties[]
+}
+
+model PublicIpAddressProperties public
+{
+	name as string
+	dnsName as string
+}
+
+model NatGatewayProperties public
+{
+	name as string
+	publicIpId as string
+}
+
+func getVirtualNetwork(name as string) async as dynamic
+{
+	var networkClient = AzureApi.getNetworkManagementClient(context)
+	return await networkClient.virtualNetworks.get(context.resourceGroup, name)
+}
+
+func updatePrivateDnsZone(properties as PrivateDnsZoneProperties) async as dynamic
+{
+	return await executeUpdate("Private DNS Zone", func async as dynamic {
+		var dnsClient = AzureApi.getPrivateDnsManagementClient(context)
+		await dnsClient.privateZones.createOrUpdate(context.resourceGroup, properties.domain, {
+			location "global"
+		})
+		await dnsClient.virtualNetworkLinks.createOrUpdate(context.resourceGroup, properties.domain, properties.domain .. "-link", {
+			location "global"
+			virtualNetwork {
+				id properties.vnetId
+			}
+			registrationEnabled false
+		})
+		return await dnsClient.privateZones.get(context.resourceGroup, properties.domain)
+	})
+}
+
+func getDomainNameForPrivateEndpoint(privateEndpoint as PrivateEndpointProperties) as string
+{
+	// General reference for the following is here: https://docs.microsoft.com/en-us/azure/private-link/private-endpoint-dns
+	if privateEndpoint.resourceType == AzureResourceType.CONTAINER_REGISTRY:
+		return "privatelink.azurecr.io"
+	if privateEndpoint.resourceType == AzureResourceType.KEY_VAULT:
+		return "privatelink.vaultcore.azure.net"
+	if privateEndpoint.resourceType == AzureResourceType.WEB_PUB_SUB {
+		// https://docs.microsoft.com/en-us/azure/azure-web-pubsub/howto-secure-private-endpoints
+		return "privatelink.webpubsub.azure.com"
+	}
+	if privateEndpoint.resourceType == AzureResourceType.STORAGE_ACCOUNT:
+		return "privatelink.blob.core.windows.net"
+	return "unknown"
+}
+
+func getResourceGroupNameForPrivateEndpoint(privateEndpoint as PrivateEndpointProperties) as string
+{
+	if privateEndpoint.resourceType == AzureResourceType.CONTAINER_REGISTRY:
+		return "registry"
+	if privateEndpoint.resourceType == AzureResourceType.KEY_VAULT:
+		return "vault"
+	if privateEndpoint.resourceType == AzureResourceType.WEB_PUB_SUB:
+		return "webpubsub"
+	if privateEndpoint.resourceType == AzureResourceType.STORAGE_ACCOUNT:
+		return "blob"
+	return "unknown"
+}
+
+func updatePrivateEndpoint(properties as PrivateEndpointProperties) async as dynamic
+{
+	var domain = getDomainNameForPrivateEndpoint(properties)
+	var resourceName = properties.resourceName
+	if String.isEmpty(resourceName):
+		resourceName = Vector.getLast(String.split(properties.resourceId, '/'))
+	var endpointName = properties.endpointName
+	if String.isEmpty(endpointName):
+		endpointName = resourceName + "-pep"
+	var zone = await updatePrivateDnsZone(new PrivateDnsZoneProperties {
+		domain domain
+		vnetId properties.vnetId
+	})
+	return await executeUpdate("Private Endpoint", func async as dynamic {
+		var networkClient = AzureApi.getNetworkManagementClient(context)
+		await networkClient.privateEndpoints.beginCreateOrUpdateAndWait(context.resourceGroup, endpointName, {
+			location context.location
+			subnet {
+				id properties.vnetId .. "/subnets/" .. properties.subnetName
+			}
+			customDnsConfigs [
+				{
+					fqdn resourceName .. "." .. domain
+				}
+			]
+			privateLinkServiceConnections  [
+				{
+					name endpointName
+					groupIds [
+						getResourceGroupNameForPrivateEndpoint(properties)
+					]
+					privateLinkServiceId properties.resourceId
+				}
+			]
+		})
+		await networkClient.privateDnsZoneGroups.beginCreateOrUpdateAndWait(context.resourceGroup, endpointName, domain .. "-group", {
+			privateDnsZoneConfigs [
+				{
+					name domain + "-group-config"
+					privateDnsZoneId zone.id
+				}
+			]
+		})
+		return await networkClient.privateEndpoints.get(context.resourceGroup, endpointName)
+	})
+}
+
+func updateVirtualNetwork(properties as VirtualNetworkProperties) async as dynamic
+{
+	return await executeUpdate("Virtual Network", func async as dynamic {
+		var networkClient = AzureApi.getNetworkManagementClient(context)
+		var subnets = []
+		foreach subnet in properties.subnetBlocks {
+			var sno = {
+				name subnet.name
+				addressPrefix subnet.block
+				privateEndpointNetworkPolicies "Disabled"
+			}
+			if String.isNotEmpty(subnet.nsgId) {
+				sno.networkSecurityGroup = {
+					id subnet.nsgId
+				}
+			}
+			if String.isNotEmpty(subnet.natGwId) {
+				sno.natGateway = {
+					id subnet.natGwId
+				}
+			}
+			subnets += sno
+		}
+		var params as dyno
+		try {
+			params = await networkClient.virtualNetworks.get(context.resourceGroup, properties.name)
+		}
+		catch e {
+			params = null
+		}
+		if not params {
+			params = {
+				addressSpace {
+				}
+			}
+		}
+		params.location = context.location
+		params.addressSpace.addressPrefixes = [
+			properties.cidrBlock
+		]
+		if Vector.isNotEmpty(subnets):
+			params.subnets = subnets
+		await networkClient.virtualNetworks.beginCreateOrUpdateAndWait(context.resourceGroup, properties.name, params)
+		return await networkClient.virtualNetworks.get(context.resourceGroup, properties.name)
+	})
+}
+
+func getSubnet(vnetName as string, subnetName as string) async as dynamic
+{
+	var networkClient = AzureApi.getNetworkManagementClient(context)
+	return await networkClient.subnets.get(context.resourceGroup, vnetName, subnetName)
+}
+
+func updateSubnet(vnetName as string, properties as SubnetProperties) async as dynamic
+{
+	return await executeUpdate("Subnet `" .. properties.name .. "'", func async as dynamic {
+		var networkClient = AzureApi.getNetworkManagementClient(context)
+		var params as dyno
+		try {
+			params = await networkClient.subnets.get(context.resourceGroup, vnetName, properties.name)
+		}
+		catch e {
+			params = null
+		}
+		if not params:
+			params = {}
+		params.name = properties.name
+		params.addressPrefix = properties.block
+		params.privateEndpointNetworkPolicies = "Disabled"
+		var delegations as vector
+		var n = 1
+		foreach delegation in properties.delegations {
+			if not delegations:
+				delegations = []
+			delegations += {
+				type "Microsoft.Network/virtualNetworks/subnets/delegations"
+				serviceName delegation
+				name properties.name .. "-delegation" .. String.forInteger(n++)
+			}
+		}
+		if delegations:
+			params.delegations = delegations
+		if String.isNotEmpty(properties.nsgId) {
+			params.networkSecurityGroup = {
+				id properties.nsgId
+			}
+		}
+		if String.isNotEmpty(properties.natGwId) {
+			params.natGateway = {
+				id properties.natGwId
+			}
+		}
+		await networkClient.subnets.beginCreateOrUpdateAndWait(context.resourceGroup, vnetName, properties.name, params)
+		return await networkClient.subnets.get(context.resourceGroup, vnetName, properties.name)
+	})
+}
+
+func updateNetworkInterface(nicName as string, subnetId as string, pipId as string, nsgId as string) async as dynamic
+{
+	return await executeUpdate("Network Interface", func async as dynamic {
+		var networkClient = AzureApi.getNetworkManagementClient(context)
+		var ipconfig = {
+			name nicName + "-ipconfig"
+			privateIPAllocationMethod "Dynamic"
+			subnet {
+				id subnetId
+			}
+		}
+		var params = {
+			location context.location
+			ipConfigurations [
+				ipconfig
+			]
+		}
+		if String.isNotEmpty(pipId) {
+			ipconfig.publicIPAddress = {
+				id pipId
+			}
+		}
+		if String.isNotEmpty(nsgId) {
+			params.networkSecurityGroup = {
+				id nsgId
+			}
+		}
+		await networkClient.networkInterfaces.beginCreateOrUpdateAndWait(context.resourceGroup, nicName, params)
+		return await networkClient.networkInterfaces.get(context.resourceGroup, nicName)
+	})
+}
+
+func updatePublicIpAddress(properties as PublicIpAddressProperties) async as dynamic
+{
+	return await executeUpdate("Public IP Address", func async as dynamic {
+		var networkClient = AzureApi.getNetworkManagementClient(context)
+		var params = {
+			location context.location
+			publicIPAllocationMethod "Static"
+			sku {
+				name "Standard"
+			}
+		}
+		if String.isNotEmpty(properties.dnsName) {
+			params.dnsSettings = {
+				domainNameLabel properties.dnsName
+			}
+		}
+		await networkClient.publicIPAddresses.beginCreateOrUpdateAndWait(context.resourceGroup, properties.name, params)
+		return await networkClient.publicIPAddresses.get(context.resourceGroup, properties.name)
+	})
+}
+
+func getPublicIpAddressResource(name as string) async as dynamic
+{
+	return await executeQuery("Public IP address `" .. name .. "'", func async as dynamic {
+		var networkClient = AzureApi.getNetworkManagementClient(context)
+		return await networkClient.publicIPAddresses.get(context.resourceGroup, name)
+	})
+}
+
+func getPublicIpAddress(name as string) async as string
+{
+	var pip = await getPublicIpAddressResource(name)
+	if not pip:
+		return null
+	return String.asString(pip.ipAddress)
+}
+
+func updateNatGateway(properties as NatGatewayProperties) async as dynamic
+{
+	return await executeUpdate("Nat Gateway", func async as dynamic {
+		var networkClient = AzureApi.getNetworkManagementClient(context)
+		var params = {
+			location context.location
+			sku {
+				name "Standard"
+			}
+			publicIpAddresses [
+				{
+					id properties.publicIpId
+				}
+			]
+		}
+		await networkClient.natGateways.beginCreateOrUpdateAndWait(context.resourceGroup, properties.name, params)
+		return await networkClient.natGateways.get(context.resourceGroup, properties.name)
+	})
+}

@@ -1,0 +1,64 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.mime
+
+class:
+
+func saveToStorageBucket(ctx as LoggingContext, params as map<string,object>) async static as string
+{
+	var source = File.asFile(Map.get(params, "source"))
+	if not source:
+		Error.throw("invalidSource", "No valid `source' specified.")
+	var bucket = String.asString(Map.get(params, "bucket"))
+	if not bucket:
+		Error.throw("invalidBucket", "No valid `bucket' specified.")
+	var serviceAccount = File.asFile(Map.get(params, "serviceAccount"))
+	if not serviceAccount:
+		Error.throw("invalidServiceAccount", "No valid `serviceAccount' specified.")
+	var serviceAccountData = serviceAccount.getContentsUTF8()
+	if String.isEmpty(serviceAccountData):
+		Error.throw("invalidServiceAccountData", "No serviceAccount data")
+	var bucketPath = String.asString(Map.get(params, "bucketPath"))
+	var bucketPrefix = String.asString(Map.get(params, "bucketPrefix"))
+	var path = bucketPath
+	if String.isEmpty(path) {
+		var fname = source.getBasename()
+		if bucketPrefix {
+			path = bucketPrefix .. fname
+		}
+		else {
+			path = fname
+		}
+	}
+	var fileContent = source.getContentsBuffer()
+	if not fileContent:
+		Error.throw("failedToReadSource", "Failed to read source file")
+	var session = await GCPSession.forServiceAccount(ctx, serviceAccountData, [ GCPSession.SCOPE_READ_WRITE ])
+	var storage = new GCPStorageAPI(session)
+	var inserted = await storage.insertObject(bucket, path, fileContent, MimeTypeRegistry.getSharedInstance().getTypeForFile(source))
+	return inserted.mediaLink
+}

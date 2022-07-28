@@ -1,0 +1,11 @@
+{
+	libraries [
+		{
+			vendor "eqela"
+			name "jkop"
+			version "dev"
+			gitUrl "https://github.com/eqela/jkop.git"
+			gitRef "4.1.0"
+		}
+	]
+}

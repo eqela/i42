@@ -1,0 +1,94 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.jwt
+import jk.time
+import jk.json
+import jk.webclient
+
+class:
+
+const SCOPE_READ_ONLY = "https://www.googleapis.com/auth/devstorage.read_only"
+const SCOPE_READ_WRITE = "https://www.googleapis.com/auth/devstorage.read_write"
+const SCOPE_FULL_CONTROL = "https://www.googleapis.com/auth/devstorage.full_control"
+const SCOPE_CLOUD_PLATFORM_READ_ONLY = "https://www.googleapis.com/auth/cloud-platform.read-only"
+const SCOPE_CLOUD_PLATFORM = "https://www.googleapis.com/auth/cloud-platform"
+
+func forServiceAccount(ctx as LoggingContext, config as string, permissions as vector<string>) async static as this
+{
+	if String.isEmpty(config):
+		Error.throw("emptyConfig", "Empty service account configuration")
+	var configData = JSONParser.parseString(config) as DynamicMap
+	if not configData:
+		Error.throw("invalidConfigFormat", "Invalid configuration format for service account")
+	var ts = SystemClock.asUTCSeconds()
+	var jwt = new JWT()
+	jwt.setIssuer(configData.getString("client_email"))
+	jwt.setIssuedAt(ts)
+	jwt.setAudience("https://www.googleapis.com/oauth2/v4/token")
+	jwt.setExpirationTime(ts + 3600)
+	var first = true
+	var sb = new StringBuilder()
+	foreach perm in permissions {
+		if not first:
+			sb.appendString(" ")
+		sb.appendString(perm)
+		first = false
+	}
+	jwt.setClaim("scope", sb.toString())
+	var reqtoken = jwt.generateTokenWithRS256(configData.getString("private_key"))
+	Log.debug(ctx, "Generated request token: `" .. reqtoken .. "'")
+	if String.isEmpty(reqtoken):
+		Error.throw("failedToCreateToken", "Failed to create request token")
+	var headers = new KeyValueList<string, string>()
+	headers.add("Content-Type", "application/x-www-form-urlencoded")
+	sb = new StringBuilder()
+	sb.appendString("assertion=")
+	sb.appendString(reqtoken)
+	sb.appendString("&grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer")
+	var url = "https://www.googleapis.com/oauth2/v4/token"
+	Log.debug(ctx, "Getting service account token from URL: `" .. url .. "'")
+	var resp = await WebClient.instance().executeQuery(ctx, "POST", url, headers, String.toUTF8Buffer(sb.toString()))
+	if ctx && ctx.isInDebugMode():
+		Log.debug(ctx, "Received server response: `" .. resp.getBodyAsString() .. "'")
+	var responseBody = resp.getBodyAsDynamicMap()
+	var error = responseBody.getString("error")
+	if String.isNotEmpty(error):
+		Error.throw("authenticationFailed", "Failed to get service account token: error=`" .. error .. "', description=`" .. responseBody.getString("error_description"))
+	var token = responseBody.getString("access_token")
+	if String.isEmpty(token):
+		Error.throw("noAccessTokenReceived", "No access token received")
+	var v = new this()
+	v.setCtx(ctx)
+	v.setAccessToken(token)
+	v.setAccessTokenType(responseBody.getString("token_type"))
+	v.setAccessTokenExpiry(responseBody.getLongInteger("expiry"))
+	return v
+}
+
+pvar ctx as LoggingContext
+pvar accessToken as string
+pvar accessTokenType as string
+pvar accessTokenExpiry as long

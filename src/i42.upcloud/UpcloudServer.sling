@@ -1,0 +1,95 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+const TEMPLATE_WINDOWS_SERVER_2016_DATACENTER = "01000000-0000-4000-8000-000010060200"
+const TEMPLATE_WINDOWS_SERVER_2016_STANDARD = "01000000-0000-4000-8000-000010060300"
+const TEMPLATE_WINDOWS_SERVER_2019_DATACENTER = "01000000-0000-4000-8000-000010070200"
+const TEMPLATE_WINDOWS_SERVER_2019_STANDARD = "01000000-0000-4000-8000-000010070300"
+const TEMPLATE_DEBIAN9 = "01000000-0000-4000-8000-000020040100"
+const TEMPLATE_DEBIAN10 = "01000000-0000-4000-8000-000020050100"
+const TEMPLATE_UBUNTU1604 = "01000000-0000-4000-8000-000030060200"
+const TEMPLATE_UBUNTU1804 = "01000000-0000-4000-8000-000030080200"
+const TEMPLATE_UBUNTU2004 = "01000000-0000-4000-8000-000030200200"
+const TEMPLATE_CENTOS6 = "01000000-0000-4000-8000-000050010200"
+const TEMPLATE_CENTOS7 = "01000000-0000-4000-8000-000050010300"
+const TEMPLATE_CENTOS8 = "01000000-0000-4000-8000-000050010400"
+
+const ZONE_DE_FRA1 = "de-fra1"
+const ZONE_FI_HEL1 = "fi-hel1"
+const ZONE_FI_HEL2 = "fi-hel2"
+const ZONE_NL_AMS1 = "nl-ams1"
+const ZONE_SG_SIN1 = "sg-sin1"
+const ZONE_UK_LON1 = "uk-lon1"
+const ZONE_US_CHI1 = "us-chi1"
+const ZONE_US_NYC1 = "us-nyc1"
+const ZONE_US_SJO1 = "us-sjo1"
+
+const PLAN_1CPU_1GB = "1xCPU-1GB"
+const PLAN_1CPU_2GB = "1xCPU-2GB"
+const PLAN_2CPU_4GB = "2xCPU-4GB"
+const PLAN_4CPU_8GB = "4xCPU-8GB"
+const PLAN_6CPU_16GB = "6xCPU-16GB"
+const PLAN_8CPU_32GB = "8xCPU-32GB"
+const PLAN_12CPU_48GB = "12xCPU-48GB"
+const PLAN_16CPU_64GB = "16xCPU-64GB"
+const PLAN_20CPU_128GB = "20xCPU-128GB"
+const PLAN_20CPU_96GB = "20xCPU-96GB"
+
+model PrivateNetworkConnection
+{
+	network as string
+	address as string
+}
+
+prop hostname as string
+prop zone as string
+prop plan as string
+prop template as string
+prop size as int
+prop username as string
+prop sshKeys as vector<string>
+prop createPublicAddress as bool = true
+prop privateNetworks as vector<PrivateNetworkConnection>
+prop script as string
+
+func addToSshKeys(key as string)
+{
+	assert key
+	if not sshKeys:
+		sshKeys = new vector<string>
+	sshKeys += key
+}
+
+func addToPrivateNetworks(network as string, address as string)
+{
+	assert network
+	if not privateNetworks:
+		privateNetworks = new vector<PrivateNetworkConnection>
+	var o = new PrivateNetworkConnection()
+	o.network = network
+	o.address = address
+	privateNetworks += o
+}

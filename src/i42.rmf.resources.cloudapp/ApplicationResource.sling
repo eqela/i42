@@ -1,0 +1,415 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is ContainerResource:
+
+prop name as string
+
+/*
+class ContainerRegistryResource is Resource
+{
+}
+
+class SecretManagerResource is Resource
+{
+}
+
+
+model ContainerAppProperties public
+{
+	name as string
+}
+
+model ContainerServiceProperties public
+{
+	name as string
+	image as string
+	sourceDirectory as string
+	command as string[]
+	args as string[]
+	env as DynamicMap
+	port as int
+	cpu as int
+	memory as int
+	minReplicas as int
+	maxReplicas as int
+	public as bool
+}
+
+model LogAnalyticsProperties public
+{
+	name as string
+}
+
+model ResourceGroupProperties public
+{
+	name as string
+}
+
+prop resourceGroupProperties as ResourceGroupProperties
+prop virtualNetworkProperties as VirtualNetworkProperties
+prop logAnalyticsProperties as LogAnalyticsProperties
+prop containerRegistryProperties as ContainerRegistryProperties
+prop keyVaultProperties as KeyVaultProperties
+prop containerAppProperties as ContainerAppProperties
+prop containerServices as vector<ContainerServiceProperties>
+prop createPrivateEndpoints as boolean = false
+prop subnets as vector<string>
+
+func createResourceName(name as string) as string:
+	return this.name .. "-" .. this.environmentName .. "-" .. name
+
+func createGlobalCompactResourceName(name as string) as string:
+	return this.name .. environmentName .. name
+
+func useSubscription(subscriptionId as string):
+	this.subscriptionId = subscriptionId
+
+func useTenant(tenantId as string):
+	this.tenantId = tenantId
+
+func useLocation(location as string):
+	this.location = location
+
+func createContext as AzureContext
+{
+	var v = new AzureContext()
+	v.subscriptionId = subscriptionId
+	v.location = location
+	v.resourceGroup = resourceGroupProperties ? resourceGroupProperties.name : (name .. "-" .. environmentName .. "-rg")
+	var creds = new AzureCredentials()
+	creds.tenantId = tenantId
+	v.credentials = creds
+	return v
+}
+
+// resource group
+
+func useResourceGroup(properties as ResourceGroupProperties = null)
+{
+	resourceGroupProperties = properties
+	if not resourceGroupProperties:
+		resourceGroupProperties = new ResourceGroupProperties()
+	if String.isEmpty(resourceGroupProperties.name):
+		resourceGroupProperties.name = createResourceName("rg")
+}
+
+func updateResourceGroup async
+{
+	assert resourceGroupProperties
+	// new AzureResourceGroupManager(createContext()).updateResourceGroup(resourceGroupProperties.name)
+}
+
+// virtual network
+
+func useVirtualNetwork(properties as VirtualNetworkProperties = null)
+{
+	/*
+	// FIXME
+	virtualNetworkProperties = properties
+	if not virtualNetworkProperties:
+		virtualNetworkProperties = new VirtualNetworkProperties()
+	if String.isEmpty(virtualNetworkProperties.name):
+		virtualNetworkProperties.name = createResourceName("vnet")
+	if String.isEmpty(virtualNetworkProperties.cidrBlock):
+		virtualNetworkProperties.cidrBlock = "10.0.0.0/16"
+	if not virtualNetworkProperties.subnetBlocks:
+		virtualNetworkProperties.subnetBlocks = [
+			new SubnetProperties() {
+				name "acr"
+				block "10.0.1.0/24"
+			}
+			new SubnetProperties() {
+				name "kv"
+				block "10.0.2.0/24"
+			}
+			new SubnetProperties() {
+				name "db"
+				block "10.0.3.0/24"
+			}
+			new SubnetProperties() {
+				name "vm"
+				block "10.0.4.0/24"
+			}
+			new SubnetProperties() {
+				name "aks"
+				block "10.0.5.0/24"
+			}
+			new SubnetProperties() {
+				name "agw"
+				block "10.0.6.0/24"
+			}
+			new SubnetProperties() {
+				name "storage"
+				block "10.0.7.0/24"
+			}
+			new SubnetProperties() {
+				name "log"
+				block "10.0.8.0/24"
+			}
+		]
+	* /
+}
+
+func useSubnet(name as string)
+{
+	assert String.isNotEmpty(name)
+	if not subnets:
+		subnets = new vector<string>
+	subnets += name
+}
+
+func updateVirtualNetwork async
+{
+	/*
+	// FIXME
+	assert virtualNetworkProperties
+	var blocks = new vector<SubnetProperties>
+	foreach block in virtualNetworkProperties.subnetBlocks {
+		var toinclude = false
+		foreach subnet in subnets {
+			if subnet == block.name {
+				toinclude = true
+				break
+			}
+		}
+		if toinclude:
+			blocks += block
+	}
+	await new AzureNetworkClient(createContext()).updateVirtualNetwork(new VirtualNetworkProperties() {
+		name virtualNetworkProperties.name
+		cidrBlock virtualNetworkProperties.cidrBlock
+		subnetBlocks blocks
+	})
+	* /
+}
+
+/*
+// log analytics
+
+public useLogAnalytics(properties: Partial<LogAnalyticsProperties> = {}) {
+	this.logAnalyticsProperties = {
+		name: properties.name || this.createResourceName("log")
+	}
+}
+
+public async updateLogAnalytics() {
+	if(this.logAnalyticsProperties) {
+		const context = this.createContext()
+		await azureLogAnalytics.updateLogAnalyticsWorkspace(context, {
+			name: this.logAnalyticsProperties.name
+		})
+		// FIXME: Private endpoint support
+	}
+}
+
+// container registry
+
+public useContainerRegistry(properties: Partial<ContainerRegistryProperties> = {}) {
+	this.containerRegistryProperties = {
+		name: properties.name || this.createGlobalCompactResourceName("acr")
+	}
+	this.useSubnet("acr")
+}
+
+public async updateContainerRegistry() {
+	if(this.containerRegistryProperties) {
+		const context = this.createContext()
+		const properties: azureAcr.ContainerRegistryProperties = {
+			name: this.containerRegistryProperties.name
+		}
+		if(this.createPrivateEndpoints && this.virtualNetworkProperties) {
+			properties.vnetName = this.virtualNetworkProperties.name
+			properties.subnetName = "acr"
+		}
+		await azureAcr.updateContainerRegisry(context, properties)
+	}
+}
+
+// key vault
+
+public useKeyVault(properties: Partial<KeyVaultProperties> = {}) {
+	this.keyVaultProperties = {
+		name: properties.name || this.createGlobalCompactResourceName("kv")
+	}
+}
+
+public async updateKeyVault() {
+	if(this.keyVaultProperties) {
+		const context = this.createContext()
+		const users: string[] = []
+		users.push(await context.getCurrentUserAdObjectId())
+		// FIXME: Add other users
+		const properties: azureKeyvault.KeyVaultProperties = {
+			name: this.keyVaultProperties.name,
+			userObjectIds : users
+		}
+		if(this.createPrivateEndpoints && this.virtualNetworkProperties) {
+			properties.vnetName = this.virtualNetworkProperties.name
+			properties.subnetName = "kv"
+		}
+		await azureKeyvault.updateKeyvault(context, properties)
+	}
+}
+
+// container app
+
+public useContainerApp(properties: Partial<ContainerAppProperties> = {}) {
+	this.containerAppProperties = {
+		name: properties.name || this.createResourceName("app")
+	}
+}
+
+public async updateContainerApp() {
+	if(this.containerAppProperties) {
+		const context = this.createContext()
+		if(this.createPrivateEndpoints && this.virtualNetworkProperties) {
+			// FIXME: Print warning: Not supported
+		}
+		await azureContainerApp.updateContainerAppEnvironment(context, {
+			name: this.containerAppProperties.name,
+			logAnalyticsWorkspaceName: this.logAnalyticsProperties ? this.logAnalyticsProperties.name : undefined
+		})
+	}
+}
+
+// container services
+
+public useContainerService(properties: ContainerServiceProperties) {
+	if(this.containerServices[properties.name]) {
+		throw new Error(`Duplicate container service: ${properties.name}`)
+	}
+	this.containerServices[properties.name] = properties
+}
+
+public async updateContainerService(serviceName: string) {
+	const context = this.createContext()
+	const service = this.containerServices[serviceName]
+	if(!service) {
+		throw new Error(`No such service: ${serviceName}`)
+	}
+	if(this.containerAppProperties) {
+		const deployProps: azureContainerApp.ContainerAppDeploymentProperties = {
+			environmentName: this.containerAppProperties.name
+		}
+		let imageName = service.image
+		if(this.containerRegistryProperties) {
+			const acr = await azureAcr.getContainerRegistry(context, this.containerRegistryProperties.name)
+			const creds = await azureAcr.getContainerRegistryCredentials(context, this.containerRegistryProperties.name)
+			const registryCreds: dockerCommon.DockerRegistryCredentials = {
+				address: acr.loginServer,
+				username: creds.username,
+				password: creds.passwords && creds.passwords[0] && creds.passwords[0].value ? creds.passwords[0].value : undefined
+			}
+			deployProps.registry = registryCreds
+			if(service.sourceDirectory) {
+				imageName = await dockerBuild.buildDirectoryToDockerRegistry(service.name, service.sourceDirectory, registryCreds)
+			}
+		}
+		if(!imageName) {
+			throw new Error(`Unable to determine image name for service ${service.name}`)
+		}
+		const appProps: azureContainerApp.ContainerAppProperties = {
+			name: service.name,
+			image: imageName,
+			command: service.command,
+			args: service.args,
+			env: service.env,
+			port: service.port,
+			cpu: service.cpu,
+			memory: service.memory,
+			minReplicas: service.minReplicas,
+			maxReplicas: service.maxReplicas,
+			external: service.public
+		}
+		await azureContainerApp.updateContainerApp(context, deployProps, appProps)
+	}
+}
+
+public async updateContainerServices() {
+	for(const serviceName in this.containerServices) {
+		await this.updateContainerService(serviceName)
+	}
+}
+
+public useKubernetes() {
+	// FIXME
+	// FIXME: Add agwIdentity.principalId! to key vault IDs
+}
+
+public useAppServicePlan() {
+	// FIXME
+}
+
+public useAppServiceContainer() {
+	// FIXME
+}
+
+public useRedis() {
+	// FIXME
+}
+
+public useMysql() {
+	// FIXME
+}
+
+public usePostgresql() {
+	// FIXME
+}
+
+public useMssql() {
+	// FIXME
+}
+
+public useEventHub() {
+	// FIXME
+}
+
+public useStorage() {
+	// FIXME
+}
+
+public useVirtualMachine() {
+	// FIXME
+}
+
+public useAzureDevOpsBuildAgent() {
+	// FIXME
+}
+
+public useGitHubBuildAgent() {
+	// FIXME
+}
+
+public async updateResources() {
+	const context = this.createContext()
+	await this.updateResourceGroup()
+	await this.updateLogAnalytics()
+	await this.updateVirtualNetwork()
+	await this.updateKeyVault()
+	await this.updateContainerRegistry()
+	await this.updateContainerApp()
+	await this.updateContainerServices()
+}
+*/

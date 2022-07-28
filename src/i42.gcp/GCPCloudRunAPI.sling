@@ -1,0 +1,222 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.json
+
+class is GCPAPI:
+
+// API Reference: https://cloud.google.com/run/docs/reference/rest
+
+ctor(session as GCPSession, region as string)
+{
+	setSession(session)
+    var rr = region
+    if String.isEmpty(rr):
+        rr = "us-central1"
+    setRegion(rr)
+}
+
+pvar region as string
+
+// Authorized domains: https://cloud.google.com/run/docs/reference/rest#rest-resource:-v1.namespaces.authorizeddomains
+
+func listAuthorizedDomains
+{
+    // FIXME
+}
+
+// Configurations: https://cloud.google.com/run/docs/reference/rest#rest-resource:-v1.namespaces.configurations
+
+func getConfiguration
+{
+    // FIXME
+}
+
+func listConfigurations
+{
+    // FIXME
+}
+
+// Domain mappings: https://cloud.google.com/run/docs/reference/rest#rest-resource:-v1.namespaces.domainmappings
+
+func createDomainMapping
+{
+    // FIXME
+}
+
+func deleteDomainMapping
+{
+    // FIXME
+}
+
+func getDomainMapping
+{
+    // FIXME
+}
+
+func listDomainMappings
+{
+    // FIXME
+}
+
+// Revisions: https://cloud.google.com/run/docs/reference/rest#rest-resource:-v1.namespaces.revisions
+
+func deleteRevision
+{
+    // FIXME
+}
+
+func getRevision
+{
+    // FIXME
+}
+
+func listRevisions
+{
+    // FIXME
+}
+
+// Routes: https://cloud.google.com/run/docs/reference/rest#rest-resource:-v1.namespaces.routes
+
+func getRoute
+{
+    // FIXME
+}
+
+func listRoutes
+{
+    // FIXME
+}
+
+// Services: https://cloud.google.com/run/docs/reference/rest#rest-resource:-v1.namespaces.services
+
+func createService
+{
+    // FIXME
+}
+
+func deleteService
+{
+    // FIXME
+}
+
+func getService
+{
+    // FIXME
+}
+
+model Container
+{
+    name as string
+    image as string
+    command as string[]
+    args as string[]
+    // env as EnvVar[]
+    // resources as ResourceRequirements[]
+    workingDir as string
+    // ports as ContainerPort[]
+    // envFrom as EnvFromSource[]
+    // volumeMounts as VolumeMount[]
+    // livenessProbe as Probe[]
+    // readinessProbe as Probe[]
+    terminationMessagePath as string
+    terminationMessagePolicy as string
+    imagePullPolicy as string
+    // securityContext as SecurityContext[]
+}
+
+model RevisionSpec
+{
+    containerConcurrency as int
+    timeoutSeconds as int
+    serviceAccountName as string
+    containers as Container[]
+    // volumes
+}
+
+model RevisionTemplate
+{
+    // metadata
+    spec as RevisionSpec
+}
+
+model ServiceSpec
+{
+    template as RevisionTemplate
+    // traffic
+}
+
+model ServiceResource
+{
+    apiVersion as string
+    kind as string
+    // metadata
+    spec as ServiceSpec
+    // status
+}
+
+func listServices(project as string) async as vector<ServiceResource>
+{
+	meta {
+		description "List services."
+	}
+	INITIALIZE_GCP_OPERATION()
+    REQUIRE_PROJECT_NAME()
+	var url = "https://" .. safeName(region) .. "-run.googleapis.com/apis/serving.knative.dev/v1/namespaces/" .. safeName(project) .. "/services"
+	var resp = await request("GET", url, headers, null)
+	var responseBody = resp.getBodyAsDynamicMap()
+	var items = responseBody.getDynamicVector("items")
+	if not items:
+		Error.throw("noItems", "No items in response.")
+	var v = new vector<ServiceResource>
+	foreach map as DynamicMap in items.toVector() {
+		var o = ServiceResource.forData(map)
+		if not o:
+			ON_INVALID_RESPONSE_DATA()
+		v += o
+	}
+	return v
+}
+
+func replaceService
+{
+    // FIXME
+}
+
+// Locations.Services: https://cloud.google.com/run/docs/reference/rest#rest-resource:-v1.projects.locations.services
+
+func getIamPolicy
+{
+    // FIXME
+}
+
+func setIamPolicy
+{
+    // FIXME
+}
+
+func testIamPermissions
+{
+    // FIXME
+}

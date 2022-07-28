@@ -1,0 +1,166 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.json
+
+class is GCPAPI:
+
+// API Reference: https://cloud.google.com/compute/docs/reference/rest/v1/
+
+ctor(session as GCPSession):
+	setSession(session)
+
+// acceleratorTypes: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.acceleratortypes
+
+// addresses: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.addresses
+
+// autoscalers: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.autoscalers
+
+// backendBuckets: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.backendbuckets
+
+// backendServices: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.backendservices
+
+// diskTypes: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.disktypes
+
+// disks: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.disks
+
+// externalVpnGateways: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.externalvpngateways
+
+// firewalls: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.firewalls
+
+// forwardingRules: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.forwardingrules
+
+// globalAddresses: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.globaladdresses
+
+// globalForwardingRules: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.globalforwardingrules
+
+// globalOperations: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.globaloperations
+
+// healthChecks: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.healthchecks
+
+// httpHealthChecks: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.httphealthchecks
+
+// httpsHealthChecks: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.httpshealthchecks
+
+// images: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.images
+
+// instanceGroupManagers: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.instancegroupmanagers
+
+// instanceGroups: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.instancegroups
+
+// instanceTemplates: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.instancetemplates
+
+// instances: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.instances
+
+// interconnectAttachments: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.interconnectattachments
+
+// interconnectLocations: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.interconnectlocations
+
+// interconnects: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.interconnects
+
+// machineTypes: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.machinetypes
+
+// networkEndpointGroups: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.networkendpointgroups
+
+// networks: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.networks
+
+// nodeGroups: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.nodegroups
+
+// nodeTemplates: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.nodetemplates
+
+// nodeTypes: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.nodetypes
+
+// packetMirrorings: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.packetmirrorings
+
+// projects: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.projects
+
+// regionAutoscalers: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regionautoscalers
+
+// regionBackendServices: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regionbackendservices
+
+// regionCommitments: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regioncommitments
+
+// regionDiskTypes: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regiondisktypes
+
+// regionDisks: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regiondisks
+
+// regionHealthChecks: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regionhealthchecks
+
+// regionInstanceGroupManagers: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regioninstancegroupmanagers
+
+// regionInstanceGroups: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regioninstancegroups
+
+// regionOperations: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regionoperations
+
+// regionSslCertificates: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regionsslcertificates
+
+// regionTargetHttpProxies: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regiontargethttpproxies
+
+// regionTargetHttpsProxies: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regiontargethttpsproxies
+
+// regionUrlMaps: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regionurlmaps
+
+// regions: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.regionurlmaps
+
+// reservations: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.reservations
+
+// resourcePolicies: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.resourcepolicies
+
+// routers: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.routers
+
+// routes: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.routes
+
+// securityPolicies: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.securitypolicies
+
+// snapshots: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.snapshots
+
+// sslCertificates: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.sslcertificates
+
+// sslPolicies: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.sslpolicies
+
+// subnetworks: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.subnetworks
+
+// targetHttpProxies: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.targethttpproxies
+
+// targetHttpsProxies: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.targethttpsproxies
+
+// targetInstances: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.targetinstances
+
+// targetPools: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.targetpools
+
+// targetSslProxies: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.targetsslproxies
+
+// targetTcpProxies: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.targettcpproxies
+
+// targetVpnGateways: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.targetvpngateways
+
+// urlMaps: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.urlmaps
+
+// vpnGateways: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.vpngateways
+
+// vpnTunnels: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.vpntunnels
+
+// zoneOperations: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.zoneoperations
+
+// zones: https://cloud.google.com/compute/docs/reference/rest/v1/#rest-resource:-v1.zones

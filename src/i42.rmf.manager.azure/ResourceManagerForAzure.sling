@@ -1,0 +1,707 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import i42.azure.iac
+import i42.rmf.manager.common
+import i42.rmf.resources.common
+import i42.rmf.resources.cloudapp
+import i42.docker.model
+import i42.docker.util
+
+class is ResourceManager:
+
+class StringValueForResource
+{
+	prop staticValue as string
+	prop valueGenerator as function<promise<string>>
+
+	func toString async as string
+	{
+		var vg = valueGenerator
+		if vg:
+			return await vg()
+		return staticValue
+	}
+}
+
+prop azure as AzureContext
+
+var hasKeyVaultAccess = new StringSet()
+
+ctor(ctx as LoggingContext, application as ApplicationResource, azure as AzureContext)
+{
+	base(ctx, application)
+	this.azure = azure
+}
+
+func throwError(error as string, detail as dynamic):
+	Error.throw(error, detail, StackTrace.generate())
+
+func doGetAzureResourceName(resource as Resource) async as string
+{
+	if not resource:
+		throwError("nullResource", null)
+	if resource is NetworkResource {
+		var nrs = resource as! NetworkResource
+		var name = nrs.name
+		if String.isEmpty(name):
+			name = application.name
+		if String.isEmpty(name):
+			return null
+		return name .. "-vnet"
+	}
+	if resource is ContainerRegistryResource {
+		var crs = resource as! ContainerRegistryResource
+		var name = crs.name
+		if String.isNotEmpty(name):
+			return name
+		var anc = new AzureContainerRegistryClient(ctx, azure)
+		return await anc.tryGetContainerRegistryName()
+	}
+	if resource is SecretManagerResource {
+		var srs = resource as! SecretManagerResource
+		var name = srs.name
+		if String.isNotEmpty(name):
+			return name
+		var kvc = new AzureKeyVaultClient(ctx, azure)
+		return await kvc.tryGetKeyVaultName()
+	}
+	if resource is StorageBucketResource {
+		var srs = resource as! StorageBucketResource
+		var name = srs.name
+		if String.isNotEmpty(name):
+			return name
+		var cc = new AzureStorageClient(ctx, azure)
+		return await cc.tryGetStorageAccountName()
+	}
+	if resource is PostgreSQLServerResource {
+		var prs = resource as! PostgreSQLServerResource
+		var name = prs.name
+		if String.isNotEmpty(name):
+			return name
+		var psc = new AzurePostgreSQLClient(ctx, azure)
+		return await psc.tryGetDatabaseServerName()
+	}
+	if resource is PostgreSQLDatabaseResource {
+		var prs = resource as! PostgreSQLDatabaseResource
+		return prs.name
+	}
+	if resource is ContainerEnvironmentResource {
+		var cer = resource as! ContainerEnvironmentResource
+		var name = cer.name
+		if String.isEmpty(name):
+			name = application.name
+		if String.isEmpty(name):
+			return null
+		return name .. "-acaenv"
+	}
+	if resource is ContainerServiceResource {
+		return (resource as! ContainerServiceResource).name
+	}
+	throwError("unsupportedResource", resource)
+	return null
+}
+
+func getAzureResourceName(resource as Resource, allowNull as bool) async as string
+{
+	var v = await doGetAzureResourceName(resource)
+	if not v {
+		if allowNull == false:
+			throwError("failedToDetermineResourceName", resource)
+	}
+	return v
+}
+
+func getResourceById(id as string) as Resource
+{
+	if String.isEmpty(id):
+		throwError("emptyResourceId", null)
+	foreach rs as Resource in application.resources {
+		if rs.id == id:
+			return rs
+	}
+	throwError("resourceIdNotFound", id)
+	return null
+}
+
+func deployNetworkResource(resource as NetworkResource) async
+{
+	var vnetName = await getAzureResourceName(resource, false)
+	var anc = new AzureNetworkClient(ctx, azure)
+	var natGwId as string
+	if resource.allocateStaticAddress {
+		var pipName = vnetName .. "-pip"
+		var ngwName = vnetName .. "-ngw"
+		var pip = await anc.updatePublicIpAddress(new AzureNetworkClient.PublicIpAddressProperties() {
+			name pipName
+		})
+		var ngw = await anc.updateNatGateway(new AzureNetworkClient.NatGatewayProperties() {
+			name ngwName
+			publicIpId String.asString(pip.id)
+		})
+		natGwId = String.asString(ngw.id)
+	}
+	var cidrBlock = "10.0.0.0/16"
+	var vnps = new AzureNetworkClient.VirtualNetworkProperties() {
+		name vnetName
+		cidrBlock cidrBlock
+	}
+	await anc.updateVirtualNetwork(vnps)
+}
+
+func getNetworkResourceById(id as string) as NetworkResource
+{
+	var v = getResourceById(id) as NetworkResource
+	if not v:
+		throwError("networkResourceNotFound", id)
+	return v
+}
+
+func getNetworkNameById(id as string) async as string
+{
+	var v = getNetworkResourceById(id)
+	return await getAzureResourceName(v, false)
+}
+
+class AzureNetworkNames
+{
+	prop vnetName as string
+	prop subnetName as string
+}
+
+func getContainerRegistryResourceById(id as string) as ContainerRegistryResource
+{
+	var v = getResourceById(id) as ContainerRegistryResource
+	if not v:
+		throwError("containerRegistryResourceNotFound", id)
+	return v
+}
+
+func getContainerRegistryNameById(id as string) async as string
+{
+	var v = getContainerRegistryResourceById(id)
+	return await getAzureResourceName(v, false)
+}
+
+func deployContainerRegistryResource(resource as ContainerRegistryResource) async
+{
+	var registryName = await getAzureResourceName(resource, true)
+	var crc = new AzureContainerRegistryClient(ctx, azure)
+	var registry = await crc.updateContainerRegistry(new AzureContainerRegistryClient.ContainerRegistryProperties() {
+		name registryName
+	})
+}
+
+func deploySecretManagerResource(resource as SecretManagerResource) async
+{
+	var kvName = await getAzureResourceName(resource, true)
+	var crc = new AzureKeyVaultClient(ctx, azure)
+	var creds = azure.credentials
+	if not creds:
+		throwError("noAzureCredentials", azure)
+	var registry = await crc.updateKeyVault(new AzureKeyVaultClient.KeyVaultProperties() {
+		name kvName
+		tenantId creds.tenantId
+	})
+}
+
+func getSecretManagerResourceById(id as string) as SecretManagerResource
+{
+	var v = getResourceById(id) as SecretManagerResource
+	if not v:
+		throwError("secretManagerResourceNotFound", id)
+	return v
+}
+
+func getSecretValueResourceById(id as string) as SecretValueResource
+{
+	var v = getResourceById(id) as SecretValueResource
+	if not v:
+		throwError("secretValueResourceNotFound", id)
+	return v
+}
+
+func getKeyVaultNameBySecretManagerId(id as string) async as string
+{
+	var sm = getSecretManagerResourceById(id)
+	return await getAzureResourceName(sm, false)
+}
+
+func requireKeyVaultAccess(vaultName as string) async
+{
+	assert vaultName
+	if hasKeyVaultAccess.contains(vaultName):
+		return
+	var client = new AzureKeyVaultClient(ctx, azure)
+	var creds = azure.credentials
+	if not creds:
+		throwError("noAzureCredentials", azure)
+	var objectId = await creds.getCurrentUserObjectId()
+	await client.addKeyVaultAccessPolicy(vaultName, creds.tenantId, objectId, new vector<string>[], new vector<string>[], [ "set", "get" ], new vector<string>[])
+	hasKeyVaultAccess.add(vaultName)
+}
+
+func generatePassword(instructions as GeneratePasswordInstructionsResource) async as string
+{
+	return "FIXME"
+}
+
+func getStringValueForResource(resource as Resource) private async as StringValueForResource
+{
+	if not resource:
+		Error.throw("nullResource", null)
+	if resource is TextResource {
+		var vv = (resource as! TextResource).value
+		if not vv:
+			throwError("textResourceHasNoValue", resource)
+		var v = new StringValueForResource()
+		v.staticValue = vv
+		return v
+	}
+	if resource is ConcatenatedTextResource {
+		var sb = new StringBuilder()
+		foreach value in (resource as! ConcatenatedTextResource).values:
+			sb.appendString(await getStringValueForResourceAsString(value))
+		var v = new StringValueForResource()
+		v.staticValue = sb.toString()
+		return v
+	}
+	if resource is GeneratePasswordInstructionsResource {
+		var v = new StringValueForResource()
+		v.valueGenerator = func async as string {
+			return await generatePassword(resource as! GeneratePasswordInstructionsResource)
+		}
+		return v
+	}
+	if resource is SecretReferenceResource {
+		var v = new StringValueForResource()
+		var srr = resource as! SecretReferenceResource
+		var secretValue = getSecretValueResourceById(srr.secretId)
+		var keyVaultName = await getKeyVaultNameBySecretManagerId(secretValue.secretManagerId)
+		var client = new AzureKeyVaultClient(ctx, azure)
+		v.staticValue = await client.getSecretFromKeyVault(keyVaultName, secretValue.name)
+		return v
+	}
+	if resource is PostgreSQLDatabaseURLReferenceResource {
+		var v = new StringValueForResource()
+		var dbid = (resource as! PostgreSQLDatabaseURLReferenceResource).databaseId
+		var dbr = getPostgreSQLDatabaseResourceById(dbid)
+		var dbname = await getAzureResourceName(dbr, false)
+		var dbServerResource = getPostgreSQLServerResourceById(dbr.serverId)
+		var dbServerName = await getAzureResourceName(dbServerResource, false)
+		var username = await getStringValueForResourceAsString(dbServerResource.username)
+		var password = await getStringValueForResourceAsString(dbServerResource.password)
+		v.staticValue = "postgres://" .. username .. ":" .. password .. "@" .. dbServerName .. ".postgres.database.azure.com/" .. dbname .. "?sslmode=require"
+		return v
+	}
+	if resource is StorageBucketConnectionStringReferenceResource {
+		var v = new StringValueForResource()
+		var sbid = (resource as! StorageBucketConnectionStringReferenceResource).storageBucketId
+		var sbname = await getStorageBucketResourceNameById(sbid)
+		var client = new AzureStorageClient(ctx, azure)
+		var keys = await client.getStorageAccountKeys(sbname)
+		if Vector.isEmpty(keys):
+			throwError("noAccessKeysFoundForStorageBucket", resource)
+		var key = Vector.get(keys, 0)
+		if String.isEmpty(key):
+			throwError("emptyKeyReceived", resource)
+		var sb = new StringBuilder()
+		sb.appendString("DefaultEndpointsProtocol=https;")
+		sb.appendString("AccountName=")
+		sb.appendString(sbname)
+		sb.appendString(";")
+		sb.appendString("AccountKey=")
+		sb.appendString(key)
+		sb.appendString(";")
+		sb.appendString("EndpointSuffix=core.windows.net")
+		v.staticValue = sb.toString()
+		return v
+	}
+	if resource is ContainerServiceURLReferenceResource {
+		var sid = (resource as! ContainerServiceURLReferenceResource).serviceId
+		var csr = getContainerServiceResourceById(sid)
+		var serviceName = csr.name
+		var acaEnvName = await getContainerEnvironmentNameById(csr.containerEnvironmentId)
+		var cac = new AzureContainerAppClient(ctx, azure)
+		var acaDomainName = await cac.getContainerAppEnvironmentDomainName(acaEnvName)
+		var v = new StringValueForResource()
+		v.staticValue = "https://" .. serviceName .. "." .. acaDomainName
+		return v
+	}
+	Error.throw("unableToGetStringValueForResource", resource)
+	return null
+}
+
+func getStringValueForResourceAsString(resource as Resource) async as string
+{
+	var v = await getStringValueForResource(resource)
+	return await v.toString()
+}
+
+func deploySecretValueResource(resource as SecretValueResource) async
+{
+	var value = await getStringValueForResource(resource.value)
+	if String.isEmpty(resource.secretManagerId):
+		throwError("noSecretManagerId", resource)
+	var kvn = await getKeyVaultNameBySecretManagerId(resource.secretManagerId)
+	await requireKeyVaultAccess(kvn)
+	var client = new AzureKeyVaultClient(ctx, azure)
+	var secretName = resource.name
+	var currentValue = await client.tryGetSecretFromKeyVault(kvn, secretName)
+	if value.valueGenerator {
+		if not currentValue {
+			var vg = value.valueGenerator
+			await client.updateSecretInKeyVault(kvn, secretName, await vg())
+		}
+	}
+	else if value.staticValue {
+		if currentValue != value.staticValue:
+			await client.updateSecretInKeyVault(kvn, secretName, value.staticValue)
+	}
+}
+
+func getAzureVmTypeForDescription(description as ServerTypeDescriptionResource) as string
+{
+	if not description:
+		throwError("nullServerTypeDescription", null)
+	foreach name in description.names {
+		if String.startsWith(name, "azure:"):
+			return String.getEndOfString(name, 6)
+	}
+	throwError("noAzureVmTypeFound", description)
+	return null
+}
+
+func getDataSizeInGigaBytes(description as DataSizeDescriptionResource) as int
+{
+	if not description:
+		throwError("nullDataSizeDescription", null)
+	var value = description.value
+	if String.isEmpty(value):
+		throwError("emptyValue", description)
+	if not String.endsWith(String.toLowerCase(value), "gb"):
+		throwError("valueIsNotInGigaBytes", description)
+	var v = String.toInteger(String.getSubString(value, 0, String.getLength(value)-2))
+	if v < 1:
+		throwError("invalidDataSizeValue", description)
+	return v
+}
+
+func getOrCreatePostgreSQLServerNetworkNamesForNetwork(networkId as string) private async as AzureNetworkNames:
+	return await getOrCreateSubnetForNetwork(networkId, "postgresql-subnet", "10.0.1.0/24", "Microsoft.DBforPostgreSQL/flexibleServers")
+
+func getOrCreateSubnetForNetwork(networkId as string, subnetName as string, subnetCidrBlock as string, delegation as string) private async as AzureNetworkNames
+{
+	var vnetName = await getNetworkNameById(networkId)
+	var anc = new AzureNetworkClient(ctx, azure)
+	var props = new AzureNetworkClient.SubnetProperties() {
+		name subnetName
+		block subnetCidrBlock
+	}
+	if String.isNotEmpty(delegation):
+		props.addToDelegations(delegation)
+	await anc.updateSubnet(vnetName, props)
+	var v = new AzureNetworkNames()
+	v.vnetName = vnetName
+	v.subnetName = subnetName
+	return v
+}
+
+func getPostgreSQLServerResourceById(id as string) as PostgreSQLServerResource
+{
+	var v = getResourceById(id) as PostgreSQLServerResource
+	if not v:
+		throwError("postgreSQLServerResourceNotFound", id)
+	return v
+}
+
+func getPostgreSQLServerNameById(id as string) async as string
+{
+	var v = getPostgreSQLServerResourceById(id)
+	return await getAzureResourceName(v, false)
+}
+
+func deployPostgreSQLServerResource(resource as PostgreSQLServerResource) async
+{
+	var name = await getAzureResourceName(resource, true)
+	var networks = await getOrCreatePostgreSQLServerNetworkNamesForNetwork(resource.networkId)
+	var asc = new AzurePostgreSQLClient(ctx, azure)
+	var username = await getStringValueForResourceAsString(resource.username)
+	var password = await getStringValueForResourceAsString(resource.password)
+	var dbserver = await asc.updateDatabaseServer(new AzurePostgreSQLClient.PostgreSQLServerProperties() {
+		name name
+		vnetName networks.vnetName
+		subnetName networks.subnetName
+		vmType getAzureVmTypeForDescription(resource.serverType)
+		storageSizeGB getDataSizeInGigaBytes(resource.storageSize)
+		username username
+		password password
+	})
+}
+
+func getContainerEnvironmentResourceById(id as string) as ContainerEnvironmentResource
+{
+	var v = getResourceById(id) as ContainerEnvironmentResource
+	if not v:
+		throwError("containerEnvironmentResourceNotFound", id)
+	return v
+}
+
+func getContainerEnvironmentNameById(id as string) async as string
+{
+	var v = getContainerEnvironmentResourceById(id)
+	return await getAzureResourceName(v, false)
+}
+
+func getOrCreateContainerEnvironmentInfraNetworkNamesForNetwork(networkId as string) private async as AzureNetworkNames:
+	return await getOrCreateSubnetForNetwork(networkId, "acaenv-infra-subnet", "10.0.8.0/21", null)
+
+func getOrCreateContainerEnvironmentAppNetworkNamesForNetwork(networkId as string) private async as AzureNetworkNames:
+	return await getOrCreateSubnetForNetwork(networkId, "acaenv-app-subnet", "10.0.16.0/21", null)
+
+func deployContainerEnvironmentResource(resource as ContainerEnvironmentResource) async
+{
+	var acaEnvName = await getAzureResourceName(resource, false)
+	var cac = new AzureContainerAppClient(ctx, azure)
+	var infraNetworks = await getOrCreateContainerEnvironmentInfraNetworkNamesForNetwork(resource.networkId)
+	var appNetworks = await getOrCreateContainerEnvironmentAppNetworkNamesForNetwork(resource.networkId)
+	await cac.updateContainerAppEnvironment(new AzureContainerAppClient.ContainerAppEnvironmentProperties() {
+		name acaEnvName
+		vnetName infraNetworks.vnetName
+		infraSubnetName infraNetworks.subnetName
+		containerSubnetName appNetworks.subnetName
+	})
+}
+
+func getContainerServiceResourceById(id as string) as ContainerServiceResource
+{
+	var v = getResourceById(id) as ContainerServiceResource
+	if not v:
+		throwError("containerServiceResourceNotFound", id)
+	return v
+}
+
+func getContainerServiceNameById(id as string) async as string
+{
+	var v = getContainerServiceResourceById(id)
+	return await getAzureResourceName(v, false)
+}
+
+func processConfigurationVariables(resource as Resource, configuration as map<string,Resource>) async as DynamicMap
+{
+	var v = new DynamicMap()
+	foreach key in Map.getKeys(configuration) {
+		var valres = Map.get(configuration, key)
+		if not valres:
+			throwError("noValueForConfigurationKey", resource)
+		var valstr = await getStringValueForResourceAsString(valres)
+		v.setString(key, valstr)
+	}
+	return v
+}
+
+func deployContainerServiceResource(resource as ContainerServiceResource) async
+{
+	var imageTag as string
+	var registryCreds as DockerRegistryCredentials
+	var acaEnvName = await getContainerEnvironmentNameById(resource.containerEnvironmentId)
+	var serviceName = await getAzureResourceName(resource, false)
+	var isExternalService = false
+	var portNumber = 0
+	var env = await processConfigurationVariables(resource, resource.configuration)
+	var dockerImage = resource.dockerImage
+	if not dockerImage:
+		throwError("noDockerImageSpecified", resource)
+	if dockerImage is ExistingDockerImageResource {
+		imageTag = (dockerImage as! ExistingDockerImageResource).imageTag
+	}
+	else if dockerImage is DockerImageBuildInstructionsResource {
+		var ir = dockerImage as! DockerImageBuildInstructionsResource
+		var crname = await getContainerRegistryNameById(ir.containerRegistryId)
+		var crc = new AzureContainerRegistryClient(ctx, azure)
+		registryCreds = await crc.getDockerRegistryCredentials(crname)
+		var srcdir = File.forPath(ir.sourceDirectory)
+		if not srcdir.isDirectory():
+			throwError("noSuchDirectory", String.asString(srcdir))
+		var dockerfile = File.forPath(ir.dockerFile)
+		if not dockerfile.isFile():
+			throwError("noSuchFile", String.asString(dockerfile))
+		var buildArgs as DynamicMap
+		var bargs = ir.buildArgs
+		if bargs:
+			buildArgs = await processConfigurationVariables(ir, bargs)
+		imageTag = new DockerBuilder(ctx).buildDirectoryToDockerRegistry(serviceName, srcdir, dockerfile, registryCreds, buildArgs, null)
+	}
+	else {
+		throwError("unsupportedDockerImageResource", dockerImage)
+	}
+	var ingress = resource.ingress
+	if ingress is PrivateServiceIngressDescriptionResource {
+		portNumber = (ingress as! PrivateServiceIngressDescriptionResource).containerPort
+		isExternalService = false
+	}
+	else if ingress is PublicServiceIngressDescriptionResource {
+		portNumber = (ingress as! PublicServiceIngressDescriptionResource).containerPort
+		isExternalService = true
+	}
+	else {
+		throwError("unsupportedIngressResource", dockerImage)
+	}
+	if String.isEmpty(imageTag):
+		throwError("failedToDetermineImageTag", resource)
+	var cac = new AzureContainerAppClient(ctx, azure)
+	var depp = new AzureContainerAppClient.ContainerAppDeploymentProperties() {
+		appEnvironmentName acaEnvName
+		registry registryCreds
+	}
+	await cac.updateContainerApp(depp, new AzureContainerAppClient.ContainerAppProperties() {
+		name serviceName
+		image imageTag
+		external isExternalService
+		port portNumber
+		env env
+	})
+}
+
+func getPostgreSQLDatabaseResourceById(id as string) as PostgreSQLDatabaseResource
+{
+	var v = getResourceById(id) as PostgreSQLDatabaseResource
+	if not v:
+		throwError("postgreSQLDatabaseResourceResourceNotFound", id)
+	return v
+}
+
+func getPostgreSQLDatabaseNameById(id as string) async as string
+{
+	var v = getPostgreSQLDatabaseResourceById(id)
+	return await getAzureResourceName(v, false)
+}
+
+func deployPostgreSQLDatabaseResource(resource as PostgreSQLDatabaseResource) async
+{
+	var asc = new AzurePostgreSQLClient(ctx, azure)
+	var dbservername = await getPostgreSQLServerNameById(resource.serverId)
+	var dbname = await getAzureResourceName(resource, false)
+	await asc.updateDatabase(dbservername, new AzurePostgreSQLClient.PostgreSQLDatabaseProperties() {
+		name dbname
+		charset resource.charset
+		collation resource.collation
+	})
+}
+
+func getStorageBucketResourceById(id as string) as StorageBucketResource
+{
+	var v = getResourceById(id) as StorageBucketResource
+	if not v:
+		throwError("storageBucketResourceNotFound", id)
+	return v
+}
+
+func getStorageBucketResourceNameById(id as string) async as string
+{
+	var v = getStorageBucketResourceById(id)
+	return await getAzureResourceName(v, false)
+}
+
+func deployStorageBucketResource(resource as StorageBucketResource) async
+{
+	var name = await getAzureResourceName(resource, true)
+	var asc = new AzureStorageClient(ctx, azure)
+	await asc.updateStorageAccount(new AzureStorageClient.StorageAccountProperties() {
+		name name
+	})
+	if resource.isPublic {
+		await asc.updatePublicContainer(name, "default")
+	}
+	else {
+		await asc.updatePrivateContainer(name, "default")
+	}
+}
+
+func deployResource(resource as Resource) async
+{
+	assert resource
+	if resource is NetworkResource {
+		await deployNetworkResource(resource as! NetworkResource)
+		return
+	}
+	if resource is ContainerRegistryResource {
+		await deployContainerRegistryResource(resource as! ContainerRegistryResource)
+		return
+	}
+	if resource is SecretManagerResource {
+		await deploySecretManagerResource(resource as! SecretManagerResource)
+		return
+	}
+	if resource is SecretValueResource {
+		await deploySecretValueResource(resource as! SecretValueResource)
+		return
+	}
+	if resource is PostgreSQLServerResource {
+		await deployPostgreSQLServerResource(resource as! PostgreSQLServerResource)
+		return
+	}
+	if resource is ContainerEnvironmentResource {
+		await deployContainerEnvironmentResource(resource as! ContainerEnvironmentResource)
+		return
+	}
+	if resource is ContainerServiceResource {
+		await deployContainerServiceResource(resource as! ContainerServiceResource)
+		return
+	}
+	if resource is PostgreSQLDatabaseResource {
+		await deployPostgreSQLDatabaseResource(resource as! PostgreSQLDatabaseResource)
+		return
+	}
+	if resource is StorageBucketResource {
+		await deployStorageBucketResource(resource as! StorageBucketResource)
+		return
+	}
+	throwError("unsupportedResource", resource)
+}
+
+func deployResourceById(id as string) async override
+{
+	if application {
+		foreach resource in application.resources {
+			if resource.id == id {
+				await deployResource(resource)
+				return
+			}
+		}
+	}
+	throwError("resoureWithIdNotFound", id)
+}
+
+func deployApplication async override
+{
+	var rgc = new AzureResourceGroupClient(ctx, azure)
+	await rgc.updateResourceGroup(new AzureResourceGroupClient.ResourceGroupProperties() {
+		name azure.resourceGroup
+	})
+	foreach resource in application.resources:
+		await deployResource(resource)
+}

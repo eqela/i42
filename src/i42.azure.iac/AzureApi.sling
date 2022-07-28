@@ -1,0 +1,227 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.nodejs
+
+class:
+
+// Reference: https://docs.microsoft.com/en-us/javascript/api/overview/azure/?view=azure-node-latest
+
+// identity
+
+depend "npm:@azure/identity:1.5.2"
+
+func getIdentityApi static as dynamic
+{
+	return NodeModule.require("@azure/identity")
+}
+
+// network
+
+depend "npm:@azure/arm-network:26.0.0"
+// https://docs.microsoft.com/en-us/javascript/api/@azure/arm-network/?view=azure-node-latest
+
+func getArmNetworkApi static as dynamic
+{
+	return NodeModule.require("@azure/arm-network")
+}
+
+func getNetworkManagementClient(context as AzureContext) static as dynamic
+{
+	var armNetwork = getArmNetworkApi()
+	var creds = context.getCredentialsObject()
+	var subId = context.subscriptionId
+	return lang "js" dynamic {{{ new armNetwork.NetworkManagementClient(creds, subId) }}}
+}
+
+// resources
+
+depend "npm:@azure/arm-resources:30.0.0-beta.1"
+
+func getArmResourcesApi static as dynamic
+{
+	return NodeModule.require("@azure/arm-resources")
+}
+
+func getResourceManagementClient(context as AzureContext) static as dynamic
+{
+	var api = getArmResourcesApi()
+	var creds = context.getCredentialsObject()
+	var subId = context.subscriptionId
+	return lang "js" dynamic {{{ new api.ResourceManagementClient(creds, subId) }}}
+}
+
+// storage
+
+depend "npm:@azure/arm-storage:17.0.0"
+
+func getStorageApi static as dynamic
+{
+	return NodeModule.require("@azure/arm-storage")
+}
+
+func getStorageManagementClient(context as AzureContext) static as dynamic
+{
+	var api = getStorageApi()
+	var creds = context.getCredentialsObject()
+	var subId = context.subscriptionId
+	return lang "js" dynamic {{{ new api.StorageManagementClient(creds, subId) }}}
+}
+
+// privatedns
+
+depend "npm:@azure/arm-privatedns:2.1.1"
+
+func getPrivateDnsApi static as dynamic
+{
+	return NodeModule.require("@azure/arm-privatedns")
+}
+
+func getPrivateDnsManagementClient(context as AzureContext) static as dynamic
+{
+	var api = getPrivateDnsApi()
+	var creds = context.getCredentialsObject()
+	var subId = context.subscriptionId
+	return lang "js" dynamic {{{ new api.PrivateDnsManagementClient(creds, subId) }}}
+}
+
+// compute
+
+depend "npm:@azure/arm-compute:17.3.1"
+
+func getComputeApi static as dynamic
+{
+	return NodeModule.require("@azure/arm-compute")
+}
+
+func getComputeManagementClient(context as AzureContext) static as dynamic
+{
+	var api = getComputeApi()
+	var creds = context.getCredentialsObject()
+	var subId = context.subscriptionId
+	return lang "js" dynamic {{{ new api.ComputeManagementClient(creds, subId) }}}
+}
+
+// containerregistry
+
+depend "npm:@azure/arm-containerregistry:8.1.1"
+
+func getContainerRegistryApi static as dynamic
+{
+	return NodeModule.require("@azure/arm-containerregistry")
+}
+
+func getContainerRegistryManagementClient(context as AzureContext) static as dynamic
+{
+	var api = getContainerRegistryApi()
+	var creds = context.getCredentialsObject()
+	var subId = context.subscriptionId
+	return lang "js" dynamic {{{ new api.ContainerRegistryManagementClient(creds, subId) }}}
+}
+
+// containerapp
+
+// depend "npm:@azure/arm-app:1.0.0-alpha.20220421.1"
+depend "npm:@azure/arm-app:/home/mkxcode/scratch/azure-sdk-for-js/sdk/app/arm-app"
+
+func getAppApi static as dynamic
+{
+	return NodeModule.require("@azure/arm-app")
+}
+
+func getContainerAppsApiClient(context as AzureContext) static as dynamic
+{
+	var api = getAppApi()
+	var creds = context.getCredentialsObject()
+	var subId = context.subscriptionId
+	return lang "js" dynamic {{{ new api.ContainerAppsAPIClient(creds, subId) }}}
+}
+
+// operationalinsights
+
+depend "npm:@azure/arm-operationalinsights:8.0.0"
+
+func getOperationalInsightsApi static as dynamic
+{
+	return NodeModule.require("@azure/arm-operationalinsights")
+}
+
+func getOperationalInsightsManagementClient(context as AzureContext) static as dynamic
+{
+	var api = getOperationalInsightsApi()
+	var creds = context.getCredentialsObject()
+	var subId = context.subscriptionId
+	return lang "js" dynamic {{{ new api.OperationalInsightsManagementClient(creds, subId) }}}
+}
+
+// postgresql-flexible
+// https://docs.microsoft.com/en-us/javascript/api/@azure/arm-postgresql-flexible/?view=azure-node-latest
+
+depend "npm:@azure/arm-postgresql-flexible:6.0.0"
+
+func getPostgreSqlFlexibleApi static as dynamic
+{
+	return NodeModule.require("@azure/arm-postgresql-flexible")
+}
+
+func getPostgreSQLManagementFlexibleServerClient(context as AzureContext) static as dynamic
+{
+	var api = getPostgreSqlFlexibleApi()
+	var creds = context.getCredentialsObject()
+	var subId = context.subscriptionId
+	return lang "js" dynamic {{{ new api.PostgreSQLManagementFlexibleServerClient(creds, subId) }}}
+}
+
+// keyvault
+
+depend "npm:@azure/arm-keyvault:2.0.0"
+
+func getKeyVaultApi static as dynamic
+{
+	return NodeModule.require("@azure/arm-keyvault")
+}
+
+func getKeyVaultManagementClient(context as AzureContext) static as dynamic
+{
+	var api = getKeyVaultApi()
+	var creds = context.getCredentialsObject()
+	var subId = context.subscriptionId
+	return lang "js" dynamic {{{ new api.KeyVaultManagementClient(creds, subId) }}}
+}
+
+// keyvault-secrets
+
+depend "npm:@azure/keyvault-secrets:4.4.0"
+
+func getKeyVaultSecretsApi static as dynamic
+{
+	return NodeModule.require("@azure/keyvault-secrets")
+}
+
+func getKeyVaultSecretClient(context as AzureContext, vaultUrl as string) static as dynamic
+{
+	var api = getKeyVaultSecretsApi()
+	var creds = context.getCredentialsObject()
+	return lang "js" dynamic {{{ new api.SecretClient(vaultUrl, creds) }}}
+}

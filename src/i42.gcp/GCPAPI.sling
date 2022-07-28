@@ -1,0 +1,108 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.url
+import jk.json
+import jk.webclient
+
+class:
+
+pvar session as GCPSession
+
+macro INITIALIZE_GCP_OPERATION
+{
+	if not session:
+		Error.throw("noSession", "No GCP session")
+	var headers = new KeyValueList<string, string>()
+	var accessToken = session.getAccessToken()
+	if accessToken:
+		headers.add("Authorization", "Bearer " .. accessToken)
+}
+
+macro REQUIRE_PROJECT_NAME
+{
+	if String.isEmpty(project):
+		Error.throw("noProjectName", "No name given for project")
+}
+
+macro ON_INVALID_RESPONSE_DATA
+{
+	Error.throw("invalidDataFormat", "Unsupported data format in response")
+}
+
+macro ADD_CONTENT_TYPE_JSON
+{
+	headers.add("Content-Type", "application/json")
+}
+
+func safeName(name as string) as string:
+	return URLEncoder.encode(name)
+
+func request(method as string, url as string, headers as KeyValueList<string,string>, body as buffer) async as WebClient.Response
+{
+	var ctx as LoggingContext
+	if session:
+		ctx = session.getCtx()
+	var v = await WebClient.instance().executeQuery(ctx, method, url, headers, body)
+	var dm as DynamicMap
+	try {
+		dm = v.getBodyAsDynamicMap()
+	}
+	catch {
+		dm = null
+	}
+	if dm {
+		var error = dm.getDynamicMap("error")
+		if error {
+			if ctx && ctx.isInDebugMode():
+				Log.debug(ctx, "Error response from GCP: `" .. v.getBodyAsString() .. "'")
+			var code = error.getString("code")
+			var message = error.getString("message")
+			if String.isNotEmpty(code) {
+				code = "gcp" .. code
+			}
+			else {
+				code = "gcpError"
+			}
+			if String.isEmpty(message):
+				message = "Unknown GCP error"
+			Error.throw(code, message)
+		}
+	}
+	var hcode = v.statusCode
+	if hcode == "200" || hcode == "204" {
+		nop
+	}
+	else {
+		if String.isEmpty(hcode) {
+			hcode = "httpError"
+		}
+		else {
+			hcode = "http" .. hcode
+		}
+		Error.throw(hcode, "HTTP error status: `" .. v.statusCode .. "'")
+	}
+	return v
+}

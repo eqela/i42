@@ -1,0 +1,10 @@
+{
+    "name": "@eqela/i42",
+    "scripts": {
+        "build": "npx slingdev build src -o dist",
+        "clean": "rm -rf dist node_modules src/.build"
+    },
+    "devDependencies": {
+        "@eqela/slingdev": "3.4.0"
+    }
+}

@@ -1,0 +1,545 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+// Implemented for version 1.3 of the Upcloud API: https://developers.upcloud.com/1.3/
+
+import jk.log
+import jk.json
+import jk.base64
+import jk.thread
+import jk.webclient
+
+class:
+
+model NetworkIpNetwork
+{
+	address as string
+	dhcp as string
+	dhcp_default_route as string
+	dhcp_dns as string[]
+	family as string
+	gateway as string
+}
+
+model NetworkIpNetworks
+{
+	ip_network as NetworkIpNetwork[]
+}
+
+model NetworkServer
+{
+	uuid as string
+	title as string
+}
+
+model NetworkServers
+{
+	server as NetworkServer[]
+}
+
+model Network
+{
+	name as string
+	zone as string
+	router as string
+	type as string
+	uuid as string
+	ip_networks as NetworkIpNetworks
+	servers as NetworkServers
+}
+
+model Zone
+{
+	description as string
+	id as string
+	public as string
+}
+
+model ServerStorageDevice
+{
+	action as string
+	storage as string
+	title as string
+	size as int
+	tier as string
+}
+
+model ServerStorageDevices
+{
+	storage_device as ServerStorageDevice[]
+}
+
+model ServerNetworkingInterfaceIpAddress
+{
+	family as string
+	address as string
+}
+
+model ServerNetworkingInterfaceIpAddresses
+{
+	ip_address as ServerNetworkingInterfaceIpAddress[]
+}
+
+model ServerNetworkingInterface
+{
+	type as string
+	network as string
+	index as int
+	ip_addresses as ServerNetworkingInterfaceIpAddresses
+	source_ip_filtering as string
+	bootable as string
+}
+
+model ServerNetworkingInterfaces
+{
+	interface as ServerNetworkingInterface[]
+}
+
+model ServerNetworking
+{
+	interfaces as ServerNetworkingInterfaces
+}
+
+model ServerLoginUserSshKeys
+{
+	ssh_key as string[]
+}
+
+model ServerLoginUser
+{
+	username as string
+	ssh_keys as ServerLoginUserSshKeys
+	create_password as string
+}
+
+model Server
+{
+	avoid_host as string
+	host as string
+	boot_order as string
+	core_number as int
+	login_user as ServerLoginUser
+	memory_amount as int
+	firewall as string
+	hostname as string
+	// metadata
+	networking as ServerNetworking
+	nic_model as string
+	password_delivery as string
+	plan as string
+	storage_devices as ServerStorageDevices
+	timezone as string
+	title as string
+	user_data as string
+	video_model as string
+	remote_access_type as string
+	remote_access_enabled as string
+	remote_access_password as string
+	simple_backup as string
+	uuid as string
+	zone as string
+}
+
+model FirewallRule
+{
+	position as string
+	direction as string
+	family as string
+	protocol as string
+	source_address_start as string
+	source_address_end as string
+	source_port_end as string
+	source_port_start as string
+	destination_address_start as string
+	destination_address_end as string
+	destination_port_start as string
+	destination_port_end as string
+	icmp_type as string
+	action as string
+	comment as string
+}
+
+prop apiBaseUrl as string = "https://api.upcloud.com"
+prop username as string
+prop password as string
+prop ctx as LoggingContext
+
+ctor(ctx as LoggingContext):
+	this.ctx = ctx
+
+func onInvalidResponse(response as dynamic):
+	Error.throw("invalidUpcloudResponse", response)
+
+func toPostBody(data as dynamic) as buffer
+{
+	if data == null:
+		return null
+	if data is buffer:
+		return data as! buffer
+	if data is string:
+		return String.toUTF8Buffer(data as! string)
+	if data is JSONObject {
+		var jo = assert (data as! JSONObject).toJsonObject()
+		var jostr = assert JSONEncoder.encode(jo)
+		return String.toUTF8Buffer(jostr)
+	}
+	if data is object {
+		return String.toUTF8Buffer(JSONEncoder.encode(data as! object))
+	}
+	return null
+}
+
+func call(method as string, path as string, postBody as dynamic) async as DynamicMap
+{
+	if String.startsWith(path, "/") == false:
+		Error.throw("invalidApiPath", path)
+	var url = apiBaseUrl .. path
+	var headers = new KeyValueList<string,string>()
+	var un = username
+	if not un:
+		un = ""
+	var pw = password
+	if not pw:
+		pw = ""
+	var auth = Base64Encoder.encodeString(un .. ":" .. pw)
+	if not auth:
+		Error.throw("failedToEncode", "authString")
+	headers.add("Authorization", "Basic " .. auth)
+	var pb = toPostBody(postBody)
+	if pb:
+		headers.add("Content-Type", "application/json")
+	var v as DynamicMap
+	var retries = 0
+	while not v {
+		if retries > 10:
+			Error.throw("maximumRetriesExceeded", String.forInteger(retries))
+		Log.debug(ctx, "Sending to API: `" .. String.forUTF8Buffer(pb) .. "'")
+		var response = await WebClient.instance().executeQuery(ctx, method, url, headers, pb)
+		if not response:
+			Error.throw("noApiResponse", url)
+		var status = response.statusCode
+		var body as string
+		if response.body:
+			body = response.getBodyAsString()
+		Log.debug(ctx, "Received from API: `" .. body .. "'")
+		if status == "409" {
+			var data = JSONParser.parseString(body) as DynamicMap
+			if data {
+				var error = data.getDynamicMap("error")
+				if error {
+					var code = error.getString("error_code")
+					if code == "SERVER_STATE_ILLEGAL" {
+						Log.debug(ctx, "Received SERVER_STATE_ILLEGAL. Retrying in 5 seconds..")
+						CurrentThread.sleepSeconds(5)
+						retries ++
+						continue
+					}
+				}
+			}
+		}
+		if String.startsWith(status, "2") == false {
+			Log.error(ctx, "Error status `" .. status .. "' from Upcloud API: `" .. body .. "'")
+			Error.throw("upcloudError", status)
+		}
+		v = JSONParser.parseString(body) as DynamicMap
+	}
+	return v
+}
+
+func getAllNetworks async as vector<Network>
+{
+	var response = await call("GET", "/1.3/network", null)
+	var networks = response.getDynamicMap("networks")
+	if not networks:
+		onInvalidResponse(response)
+	var networkList = networks.getDynamicVector("network")
+	if not networkList:
+		onInvalidResponse(response)
+	var v = new vector<Network>
+	foreach object in networkList.toVector() {
+		var network = Network.forData(object)
+		if not network:
+			onInvalidResponse(response)
+		v += network
+	}
+	return v
+}
+
+func getAllZones async as vector<Zone>
+{
+	var response = await call("GET", "/1.3/zone", null)
+	var networks = response.getDynamicMap("zones")
+	if not networks:
+		onInvalidResponse(response)
+	var networkList = networks.getDynamicVector("zone")
+	if not networkList:
+		onInvalidResponse(response)
+	var v = new vector<Zone>
+	foreach object in networkList.toVector() {
+		var z = Zone.forData(object)
+		if not z:
+			onInvalidResponse(response)
+		v += z
+	}
+	return v
+}
+
+func getAllServers async as vector<Server>
+{
+	var response = await call("GET", "/1.3/server", null)
+	var servers = response.getDynamicMap("servers")
+	if not servers:
+		onInvalidResponse(response)
+	var list = servers.getDynamicVector("server")
+	if not list:
+		onInvalidResponse(response)
+	var v = new vector<Server>
+	foreach object in list.toVector() {
+		var z = Server.forData(object)
+		if not z:
+			onInvalidResponse(response)
+		v += z
+	}
+	return v
+}
+
+func getServerDetails(id as string) async as Server
+{
+	var response = await call("GET", "/1.3/server/" .. id, null)
+	var object = response.getDynamicMap("server")
+	var z = Server.forData(object)
+	if not z:
+		onInvalidResponse(response)
+	return z
+}
+
+func doCreateNetwork(network as Network) async private as Network
+{
+	var o = new DynamicMap()
+	o.setObject("network", network)
+	var response = await call("POST", "/1.3/network", o)
+	var v = Network.forData(response.getDynamicMap("network"))
+	if not v:
+		onInvalidResponse(response)
+	return v
+}
+
+func createPrivateNetwork(name as string, zone as string, addressBlock as string, dhcp as bool) async as string
+{
+	var network = new Network()
+	network.name = name
+	network.zone = zone
+	var ip = new NetworkIpNetwork()
+	ip.address = addressBlock
+	if dhcp {
+		ip.dhcp = "yes"
+		ip.dhcp_default_route = "no"
+	}
+	else {
+		ip.dhcp = "no"
+	}
+	ip.family = "IPv4"
+	var ips = new NetworkIpNetworks()
+	var ipsv = new vector<NetworkIpNetwork>
+	ipsv += ip
+	ips.ip_network = ipsv
+	network.ip_networks = ips
+	var v = await doCreateNetwork(network)
+	return v.uuid
+}
+
+func doCreateServer(server as Server) async private as Server
+{
+	var o = new DynamicMap()
+	o.setObject("server", server)
+	var response = await call("POST", "/1.3/server", o)
+	var v = Server.forData(response.getDynamicMap("server"))
+	if not v:
+		onInvalidResponse(response)
+	return v
+}
+
+func doCreateFirewallRule(server as string, rule as FirewallRule) async private as FirewallRule
+{
+	var o = new DynamicMap()
+	o.setObject("firewall_rule", rule)
+	var response = await call("POST", "/1.3/server/" .. server .. "/firewall_rule", o)
+	var v = FirewallRule.forData(response.getDynamicMap("firewall_rule"))
+	if not v:
+		onInvalidResponse(response)
+	return v
+}
+
+func addFirewallRule(server as string, rule as FirewallRule) async as FirewallRule
+{
+	assert rule
+	return await doCreateFirewallRule(server, rule)
+}
+
+func addFirewallRuleDenyAll(server as string) async as FirewallRule
+{
+	var rule = new FirewallRule()
+	rule.direction = "in"
+	rule.action = "drop"
+	return await doCreateFirewallRule(server, rule)
+}
+
+func addFirewallRuleAllowAll(server as string) async as FirewallRule
+{
+	var rule = new FirewallRule()
+	rule.direction = "in"
+	rule.action = "accept"
+	return await doCreateFirewallRule(server, rule)
+}
+
+func addFirewallRuleAllowTcpPort(server as string, port as int) async as FirewallRule
+{
+	var rule = new FirewallRule()
+	rule.direction = "in"
+	rule.action = "accept"
+	rule.family = "IPv4"
+	rule.protocol = "tcp"
+	rule.destination_port_start = String.forInteger(port)
+	rule.destination_port_end = String.forInteger(port)
+	return await doCreateFirewallRule(server, rule)
+}
+
+func addFirewallRuleAllowDns(server as string, dnsServerAddress as string) async
+{
+	var rule = new FirewallRule()
+	rule.direction = "in"
+	rule.action = "accept"
+	rule.family = "IPv4"
+	rule.protocol = "udp"
+	rule.source_address_start = dnsServerAddress
+	rule.source_address_end = dnsServerAddress
+	rule.source_port_start = String.forInteger(53)
+	rule.source_port_end = String.forInteger(53)
+	await doCreateFirewallRule(server, rule)
+	rule.protocol = "tcp"
+	await doCreateFirewallRule(server, rule)
+}
+
+func addFirewallRuleAllowCommonDns(server as string) async
+{
+	// Upcloud DNS servers
+	await addFirewallRuleAllowDns(server, "94.237.127.9")
+	await addFirewallRuleAllowDns(server, "94.237.40.9")
+	// Google DNS -- used in many services
+	await addFirewallRuleAllowDns(server, "8.8.8.8")
+}
+
+func createInterfaceObject(type as string, network as string, family as string, address as string) private as ServerNetworkingInterface
+{
+	var v = new ServerNetworkingInterface()
+	v.type = type
+	v.network = network
+	if type == "private":
+		v.source_ip_filtering = "no"
+	var ip = new ServerNetworkingInterfaceIpAddress()
+	ip.family = family
+	ip.address = address
+	var ipv = new vector<ServerNetworkingInterfaceIpAddress>
+	ipv += ip
+	var ips = new ServerNetworkingInterfaceIpAddresses()
+	ips.ip_address = ipv
+	v.ip_addresses = ips
+	return v
+}
+
+func createServer(data as UpcloudServer) async as string
+{
+	var server = new Server()
+	server.zone = data.zone
+	server.title = data.hostname
+	server.hostname = data.hostname
+	server.plan = data.plan
+	server.user_data = data.script
+	var storage = new ServerStorageDevice()
+	storage.action = "clone"
+	storage.storage = data.template
+	storage.title = "Template storage " .. data.template
+	if data.size > 0:
+		storage.size = data.size
+	storage.tier = "maxiops"
+	var storages = new ServerStorageDevices()
+	var storagesv = new vector<ServerStorageDevice>
+	storagesv += storage
+	storages.storage_device = storagesv
+	server.storage_devices = storages
+	var loginUser = new ServerLoginUser()
+	loginUser.username = data.username
+	var keys = new ServerLoginUserSshKeys()
+	keys.ssh_key = data.sshKeys
+	loginUser.ssh_keys = keys
+	loginUser.create_password = "no"
+	server.login_user = loginUser
+	server.password_delivery = "none"
+	var interfacev = new vector<ServerNetworkingInterface>
+	if data.createPublicAddress {
+		var publicInterface = createInterfaceObject("public", null, "IPv4", null)
+		interfacev += publicInterface
+		server.firewall = "on"
+	}
+	foreach pine in data.privateNetworks {
+		var privateInterface = createInterfaceObject("private", pine.network, "IPv4", pine.address)
+		interfacev += privateInterface
+	}
+	var interfaces = new ServerNetworkingInterfaces()
+	interfaces.interface = interfacev
+	var networking = new ServerNetworking()
+	networking.interfaces = interfaces
+	server.networking = networking
+	var v = await doCreateServer(server)
+	return v.uuid
+}
+
+model StopServerRequest
+{
+	stop_type as string
+	timeout as int
+}
+
+func stopServer(id as string) async
+{
+	var ss = new StopServerRequest()
+	ss.stop_type = "soft"
+	ss.timeout = 60
+	var v = new DynamicMap()
+	v.setObject("stop_server", ss)
+	var response = await call("POST", "/1.3/server/" .. id .. "/stop", v)
+	var r = Server.forData(response.getDynamicMap("server"))
+	if not r:
+		onInvalidResponse(response)
+}
+
+func deleteServer(id as string) async
+{
+	var ss = new StopServerRequest()
+	ss.stop_type = "soft"
+	ss.timeout = 60
+	var v = new DynamicMap()
+	v.setObject("stop_server", ss)
+	await call("DELETE", "/1.3/server/" .. id .. "/?storages=1", v)
+}

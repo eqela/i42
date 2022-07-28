@@ -1,0 +1,277 @@
+
+/*
+ * This file is part of i42
+ * Copyright (c) 2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.time
+import jk.random
+import jk.sha
+
+class is AzureClient:
+
+model PostgreSQLServerProperties public
+{
+	name as string
+	vnetName as string
+	subnetName as string
+	vmType as string
+	storageSizeGB as int
+	username as string
+	password as string
+}
+
+model PostgreSQLDatabaseProperties public
+{
+	name as string
+	charset as string
+	collation as string
+}
+
+model FirewallRuleProperties public
+{
+	name as string
+	startIpAddress as string
+	endIpAddress as string
+}
+
+func tryGetDatabaseServer(name as string) async as dynamic
+{
+	var client = AzureApi.getPostgreSQLManagementFlexibleServerClient(context)
+	if String.isEmpty(name) {
+		var list = await client.servers.listByResourceGroup(context.resourceGroup)
+		if not list:
+			return null
+		var rr = await list.next()
+		if not rr:
+			return null
+		return rr.value
+	}
+	try {
+		return await client.servers.get(context.resourceGroup, name)
+	}
+	catch e {
+	}
+	return null
+}
+
+func tryGetDatabaseServerName async as string
+{
+	var v = await tryGetDatabaseServer(null)
+	if v:
+		return String.asString(v.name)
+	return null
+}
+
+func getDatabaseServer(name as string) async as dynamic
+{
+	var v = await tryGetDatabaseServer(name)
+	if not v:
+		Error.throw("failedToGetDatabaseServer", name)
+	return v
+}
+
+func getDatabaseServerName async as dynamic
+{
+	var v = await getDatabaseServer(null)
+	return v.name
+}
+
+func generateUniqueDatabaseServerName async as string
+{
+	var v as string
+	var client = AzureApi.getPostgreSQLManagementFlexibleServerClient(context)
+	var n = 0
+	loop {
+		var seed = String.forLongInteger(SystemClock.asUTCSeconds()) .. String.forInteger(Random.getSharedInstance().nextInteger())
+		v = String.getSubString(SHAEncoder.getSha1HashForString(seed), 0, 8) .. "-psql"
+		var r = await client.checkNameAvailability.execute({
+			name v
+			type "Microsoft.DBforPostgreSQL/flexibleServers"
+		})
+		if r.nameAvailable == true:
+			break
+		n ++
+		if n > 32:
+			Error.throw("failedToGenerateUniqueDatabaseServerName", null)
+	}
+	return v
+}
+
+func updateDatabaseServer(properties as PostgreSQLServerProperties) async as dynamic
+{
+	var name = properties.name
+	if String.isEmpty(name) {
+		name = String.asString(await executeQuery("Determine database server name", func async as dynamic {
+			var v as string
+			var dcr = await tryGetDatabaseServer(null)
+			if dcr:
+				v = dcr.name
+			if String.isEmpty(v):
+				v = await generateUniqueDatabaseServerName()
+			return v
+		}))
+	}
+	var networkParams as dynamic
+	if String.isNotEmpty(properties.vnetName) || String.isNotEmpty(properties.subnetName) {
+		var anc = new AzureNetworkClient(ctx, context)
+		var vnet = await anc.getVirtualNetwork(properties.vnetName)
+		var subnet = await anc.getSubnet(properties.vnetName, properties.subnetName)
+		var subnetId = String.asString(subnet.id)
+		var privateDnsZone = await anc.updatePrivateDnsZone(new AzureNetworkClient.PrivateDnsZoneProperties() {
+			domain name .. ".private.postgres.database.azure.com"
+			vnetId String.asString(vnet.id)
+		})
+		var privateDnsZoneId = String.asString(privateDnsZone.id)
+		networkParams = {
+			delegatedSubnetResourceId subnetId
+			privateDnsZoneArmResourceId privateDnsZoneId
+		}
+	}
+	return await executeUpdate("PostgreSQL Server", func async as dynamic {
+		var client = AzureApi.getPostgreSQLManagementFlexibleServerClient(context)
+		var server as dynamic
+		try {
+			server = await client.servers.get(context.resourceGroup, name)
+		}
+		catch e {
+			server = null
+		}
+		var vmType = properties.vmType
+		if String.isEmpty(vmType):
+			vmType = "Standard_B1ms"
+		var vmTier as string
+		if String.startsWith(vmType, "Standard_B") {
+			vmTier = "Burstable"
+		}
+		else if String.startsWith(vmType, "Standard_E") {
+			vmTier = "MemoryOptimized"
+		}
+		else {
+			vmTier = "GeneralPurpose"
+		}
+		var storage = properties.storageSizeGB
+		if storage < 128:
+			storage = 128
+		if server {
+			// update an existing server resource
+			await client.servers.beginUpdateAndWait(context.resourceGroup, name, {
+				location context.location
+				sku {
+					name vmType
+					tier vmTier
+				}
+				storage {
+					storageSizeGB storage
+				}
+				administratorLogin properties.username
+				administratorLoginPassword properties.password
+				/*
+				backup {
+					backupRetentionDays 7
+					earliestRestoreDate Date
+					geoRedundantBackup ""
+				}
+				createMode ""
+				highAvailability {
+					mode ""
+					standbyAvailabilityZone ""
+					state ""
+				}
+				*/
+				/*
+				maintenanceWindow {
+					customWindow ""
+					dayOfWeek 0
+					startHour 0
+					startMinute 0
+				}
+				*/
+			})
+		}
+		else {
+			// create a new server resource
+			var params = {
+				location context.location
+				version "13"
+				createMode "Default"
+				administratorLogin properties.username
+				administratorLoginPassword properties.password
+				sku {
+					name vmType
+					tier vmTier
+				}
+				storage {
+					storageSizeGB storage
+				}
+				network networkParams
+				backup {
+					backupRetentionDays 7
+					geoRedundantBackup "Disabled"
+				}
+				highAvailability {
+					mode "Disabled"
+				}
+				maintenanceWindow {
+					customWindow "Disabled"
+					dayOfWeek 0
+					startHour 0
+					startMinute 0
+				}
+			}
+			await client.servers.beginCreateAndWait(context.resourceGroup, name, params)
+		}
+		return await client.servers.get(context.resourceGroup, name)
+	})
+}
+
+func updateDatabase(dbServerName as string, properties as PostgreSQLDatabaseProperties) async
+{
+	return await executeUpdate("PostgreSQL Database `" .. properties.name .. "'", func async as dynamic {
+		var client = AzureApi.getPostgreSQLManagementFlexibleServerClient(context)
+		await client.databases.beginCreateAndWait(context.resourceGroup, dbServerName, properties.name, {
+			charset properties.charset
+			collation properties.collation
+		})
+		return await client.databases.get(context.resourceGroup, dbServerName, properties.name)
+	})
+}
+
+func updateFirewallRule(dbServerName as string, properties as FirewallRuleProperties) async
+{
+	return await executeUpdate("Firewall rule", func async as dynamic {
+		var client = AzureApi.getPostgreSQLManagementFlexibleServerClient(context)
+		await client.firewallRules.beginCreateOrUpdateAndWait(context.resourceGroup, dbServerName, properties.name, {
+			startIpAddress properties.startIpAddress
+			endIpAddress properties.endIpAddress
+		})
+		return await client.firewallRules.get(context.resourceGroup, dbServerName, properties.name)
+	})
+}
+
+func deleteFirewallRule(dbServerName as string, firewallRuleName as string) async
+{
+	return await executeUpdate("Remove firewall rule", func async as dynamic {
+		var client = AzureApi.getPostgreSQLManagementFlexibleServerClient(context)
+		await client.firewallRules.beginDeleteAndWait(context.resourceGroup, dbServerName, firewallRuleName)
+		return null
+	})
+}
