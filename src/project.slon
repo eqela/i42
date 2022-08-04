@@ -5,7 +5,7 @@
 			name "jkop"
 			version "dev"
 			gitUrl "https://github.com/eqela/jkop.git"
-			gitRef "4.1.0"
+			gitRef "4.2.0"
 		}
 	]
 }

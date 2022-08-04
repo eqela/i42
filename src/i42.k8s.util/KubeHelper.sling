@@ -305,7 +305,7 @@ func buildAndPushGitService(service as GitService)
 	var dirname = name
 	if String.isNotEmpty(ref) {
 		Log.debug(ctx, "Checking out with reference: `" .. ref .. "' .. ")
-		dirname = dirname .. "-" .. SHAEncoder.getSha1HashForString(ref)
+		dirname = dirname .. "-" .. SHAEncoder.forSha1().getHashForString(ref)
 	}
 	var repodir = wd.entry("git").entry(dirname)
 	if String.isNotEmpty(ref):

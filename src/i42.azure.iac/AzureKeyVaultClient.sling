@@ -87,7 +87,7 @@ func generateUniqueKeyVaultName async as string
 	var n = 0
 	loop {
 		var seed = String.forLongInteger(SystemClock.asUTCSeconds()) .. String.forInteger(Random.getSharedInstance().nextInteger())
-		v = String.getSubString(SHAEncoder.getSha1HashForString(seed), 0, 8) .. "kv"
+		v = String.getSubString(SHAEncoder.forSha1().getHashForString(seed), 0, 8) .. "kv"
 		var r = await kvClient.vaults.checkNameAvailability({
 			name v
 			type "Microsoft.KeyVault/vaults"

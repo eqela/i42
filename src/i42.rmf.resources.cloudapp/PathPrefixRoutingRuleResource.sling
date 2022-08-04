@@ -22,46 +22,9 @@
  * SOFTWARE.
  */
 
-import jk.sha
-import jk.time
-import jk.random
+class is Resource:
 
-class:
-
-var api as GCPStorageAPI
-
-ctor(api as GCPStorageAPI)
-{
-	if not api:
-		Error.throw("nullObject", "Null api object given to GCPStorageUtil")
-	this.api = api
-}
-
-func createBucketByName(project as string, name as string) async as GCPStorageAPI.BucketResource
-{
-	var bucket = new GCPStorageAPI.BucketResource()
-	bucket.name = name
-	return await api.insertBucket(project, bucket)
-}
-
-func createUniqueBucketForProject(project as string) async as GCPStorageAPI.BucketResource
-{
-	var v as GCPStorageAPI.BucketResource
-	var random = new Random()
-	loop {
-		var n = random.nextInteger()
-		var ts = SystemClock.asUTCSeconds()
-		var ns = "bucket" .. String.forInteger(n) .. String.forLongInteger(ts)
-		var name = SHAEncoder.forSha1().getHashForString(ns)
-		try {
-			v = await createBucketByName(project, name)
-		}
-		catch e as ExceptionWithError {
-			if e.getErrorCode() != "gcp409":
-				throw e
-		}
-		if v:
-			break
-	}
-	return v
-}
+prop name as string
+prop pathPrefix as string
+prop originUrl as Resource
+prop healthCheckPath as Resource

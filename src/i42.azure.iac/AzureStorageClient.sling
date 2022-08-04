@@ -39,22 +39,22 @@ model StorageAccountProperties public
 
 func updatePublicContainer(storageAccountName as string, containerName as string) async as dynamic
 {
-	var client = AzureApi.getStorageManagementClient(context)
-	var v = await client.blobContainers.create(context.resourceGroup, storageAccountName, containerName, {
-		publicAccess "Container"
+	return await executeUpdate("Public Container", func async as dynamic {
+		var client = AzureApi.getStorageManagementClient(context)
+		return await client.blobContainers.create(context.resourceGroup, storageAccountName, containerName, {
+			publicAccess "Container"
+		})
 	})
-	println v
-	return v
 }
 
 func updatePrivateContainer(storageAccountName as string, containerName as string) async as dynamic
 {
-	var client = AzureApi.getStorageManagementClient(context)
-	var v = await client.blobContainers.create(context.resourceGroup, storageAccountName, containerName, {
-		publicAccess "None"
+	return await executeUpdate("Private Container", func async as dynamic {
+		var client = AzureApi.getStorageManagementClient(context)
+		return await client.blobContainers.create(context.resourceGroup, storageAccountName, containerName, {
+			publicAccess "None"
+		})
 	})
-	println v
-	return v
 }
 
 func tryGetStorageAccount(name as string) async as dynamic
@@ -106,7 +106,7 @@ func generateUniqueStorageAccountName async as string
 	var n = 0
 	loop {
 		var seed = String.forLongInteger(SystemClock.asUTCSeconds()) .. String.forInteger(Random.getSharedInstance().nextInteger())
-		v = String.getSubString(SHAEncoder.getSha1HashForString(seed), 0, 8) .. "st"
+		v = String.getSubString(SHAEncoder.forSha1().getHashForString(seed), 0, 8) .. "st"
 		var r = await client.storageAccounts.checkNameAvailability({
 			name v
 			type "Microsoft.Storage/storageAccounts"

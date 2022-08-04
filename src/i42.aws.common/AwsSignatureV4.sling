@@ -31,10 +31,10 @@ class:
 
 func sha256(data as buffer) static private as buffer
 {
-	var encoder = SHAEncoder.create()
+	var encoder = SHAEncoder.forSha256()
 	if not encoder:
 		Error.throw("failedToCreateShaEncoder", null)
-	var vv = encoder.encodeAsBuffer(data, SHAEncoder.SHA256)
+	var vv = encoder.encodeBuffer(data)
 	if not vv:
 		Error.throw("failedToShaEncode", null)
 	return vv

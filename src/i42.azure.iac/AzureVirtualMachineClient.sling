@@ -97,8 +97,8 @@ func updateVirtualMachine(properties as VirtualMachineProperties) async as dynam
 			]
 		}
 	}
-	await client.virtualMachines.beginCreateOrUpdateAndWait(context.resourceGroup, properties.name, params)
-	var v = await client.virtualMachines.get(context.resourceGroup, properties.name)
-	println v
-	return v
+	return await executeUpdate("Virtual Machine", func async as dynamic {
+		await client.virtualMachines.beginCreateOrUpdateAndWait(context.resourceGroup, properties.name, params)
+		return await client.virtualMachines.get(context.resourceGroup, properties.name)
+	})
 }

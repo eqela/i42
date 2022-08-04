@@ -249,13 +249,13 @@ func asBuffer(data as object) as buffer
 
 func sha256(data as buffer) private as buffer
 {
-	var encoder = SHAEncoder.create()
+	var encoder = SHAEncoder.forSha256()
 	if not encoder:
 		Error.throw("failedToCreateShaEncoder", null)
 	var dd = data
 	if not dd:
 		dd = String.toUTF8Buffer("")
-	var vv = encoder.encodeAsBuffer(dd, SHAEncoder.SHA256)
+	var vv = encoder.encodeBuffer(dd)
 	if not vv:
 		Error.throw("failedToShaEncode", null)
 	return vv

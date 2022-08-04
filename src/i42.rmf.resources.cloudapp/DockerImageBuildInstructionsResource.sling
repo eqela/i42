@@ -25,6 +25,7 @@
 class is DockerImageResource:
 
 prop containerRegistryId as string
-prop sourceDirectory as string
+prop contextDirectory as string
+prop dependencyPaths as vector<string>
 prop dockerFile as string
 prop buildArgs as map<string,Resource>

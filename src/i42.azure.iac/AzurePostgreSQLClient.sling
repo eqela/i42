@@ -102,7 +102,7 @@ func generateUniqueDatabaseServerName async as string
 	var n = 0
 	loop {
 		var seed = String.forLongInteger(SystemClock.asUTCSeconds()) .. String.forInteger(Random.getSharedInstance().nextInteger())
-		v = String.getSubString(SHAEncoder.getSha1HashForString(seed), 0, 8) .. "-psql"
+		v = String.getSubString(SHAEncoder.forSha1().getHashForString(seed), 0, 8) .. "-psql"
 		var r = await client.checkNameAvailability.execute({
 			name v
 			type "Microsoft.DBforPostgreSQL/flexibleServers"

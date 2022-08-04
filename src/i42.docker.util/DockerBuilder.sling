@@ -24,6 +24,7 @@
 
 import jk.fs
 import jk.log
+import jk.sha
 import jk.time
 import jk.process
 import i42.docker.model
@@ -44,20 +45,10 @@ func ensureDockerfileInDirectory(path as File)
 
 func getDirectoryContentsHash(directory as File) as string
 {
-	// FIXME: Generate an SHA1 hash based on all contents of all files in the directory.
-	return String.forLongInteger(SystemClock.asUTCSeconds())
-	/*
-	const data = await fsp.readFile(`${directory}/package.json`)
-	if(data) {
-		const dataString = data.toString()
-		const dataObject = JSON.parse(dataString)
-		const version = dataObject["version"]
-		if(version) {
-			return version
-		}
-	}
-	return "latest"
-	*/
+	// FIXME: Instead of hardcoding the exclusions, these should be read from .dockerignore
+	var hasher = DirectoryHasher.forDirectory(directory, [ ".git", ".svn", "node_modules", ".build" ])
+	var hash = hasher.calculateHash()
+	return hash
 }
 
 func loginToDockerRegistry(registry as DockerRegistryCredentials)
@@ -70,8 +61,14 @@ func loginToDockerRegistry(registry as DockerRegistryCredentials)
 	pl.addToParams(registry.password)
 	pl.addToParams(registry.address)
 	Log.debug(ctx, pl.toString())
-	if pl.execute() != 0:
+	var sb = new StringBuilder()
+	if pl.executeToStringBuilder(sb) != 0 {
+		Log.error(ctx, sb.toString())
 		Error.throw("dockerLoginFailed", null)
+	}
+	else if ctx && ctx.isInDebugMode() {
+		Log.debug(ctx, sb.toString())
+	}
 }
 
 func logoutFromDockerRegistry(registry as DockerRegistryCredentials)
@@ -80,8 +77,14 @@ func logoutFromDockerRegistry(registry as DockerRegistryCredentials)
 	pl.addToParams("logout")
 	pl.addToParams(registry.address)
 	Log.debug(ctx, pl.toString())
-	if pl.execute() != 0:
+	var sb = new StringBuilder()
+	if pl.executeToStringBuilder(sb) != 0 {
+		Log.error(ctx, sb.toString())
 		Error.throw("dockerLogoutFailed", null)
+	}
+	else if ctx && ctx.isInDebugMode() {
+		Log.debug(ctx, sb.toString())
+	}
 }
 
 func imageExistsInRegistry(imageTag as string) as bool
@@ -92,9 +95,13 @@ func imageExistsInRegistry(imageTag as string) as bool
 	pl.addToParams(imageTag)
 	pl.setEnvVariable("DOCKER_CLI_EXPERIMENTAL", "enabled")
 	Log.debug(ctx, pl.toString())
-	if pl.execute() != 0:
-		return false
-	return true
+	var r = true
+	var sb = new StringBuilder()
+	if pl.executeToStringBuilder(sb) != 0:
+		r = false
+	if ctx && ctx.isInDebugMode():
+		Log.debug(ctx, sb.toString())
+	return r
 }
 
 func buildDockerImageInDirectory(directory as File, dockerfile as File, imageTag as string, buildArgs as DynamicMap)
@@ -132,26 +139,51 @@ func pushDockerImage(imageTag as string)
 		Error.throw("dockerPushFailed", null)
 }
 
-func buildDirectoryToDockerRegistry(imageName as string, directory as File, dockerfile as File, registry as DockerRegistryCredentials, buildArgs as DynamicMap, tagName as string) as string
+func buildDirectoryToDockerRegistry(imageName as string, contextDirectory as File, dependencyPaths as vector<File>, dockerfile as File, registry as DockerRegistryCredentials, buildArgs as DynamicMap, tagName as string) as string
 {
 	var imageTag = tagName
 	if String.isEmpty(imageTag) {
-		var hash = getDirectoryContentsHash(directory)
+		var dps = dependencyPaths
+		if not dps:
+			dps = new vector<File>
+		if Vector.isEmpty(dps):
+			dps += contextDirectory
+		var hash = ""
+		var sha = SHAEncoder.forSha1()
+		foreach dp in dps {
+			Log.status(ctx, "[Docker] Computing directory hash: `" .. String.asString(contextDirectory) .. "' .. ")
+			var dhash as string
+			if dp.isFile() {
+				dhash = sha.getHashForFile(dp)
+			}
+			else if dp.isDirectory() {
+				dhash = getDirectoryContentsHash(dp)
+			}
+			else {
+				Error.throw("noSuchFileOrDirectory", String.asString(dp))
+			}
+			Log.status(ctx, null)
+			hash = sha.getHashForString(hash .. dhash)
+		}
 		imageTag = registry.address .. "/" .. imageName .. ":" .. hash
+		Log.debug(ctx, "imageTag: `" .. imageTag .. "'")
 	}
-	Log.status(ctx, "[Docker] Login to registry: `" .. registry.address .. "'")
+	Log.status(ctx, "[Docker] Login to registry: `" .. registry.address .. "' .. ")
 	loginToDockerRegistry(registry)
 	Log.status(ctx, null)
 	try {
-		if imageExistsInRegistry(imageTag) {
+		Log.status(ctx, "[Docker] Checking image in registry: `" .. imageTag .. "' .. ")
+		var exists = imageExistsInRegistry(imageTag)
+		Log.status(ctx, null)
+		if exists {
 			Log.info(ctx, "Docker image already exists in registry: `" .. imageTag .. "'")
 		}
 		else {
 			if not dockerfile:
-				ensureDockerfileInDirectory(directory)
-			Log.status(ctx, "[Docker] Build image: `" .. imageTag .. "'")
-			buildDockerImageInDirectory(directory, dockerfile, imageTag, buildArgs)
-			Log.status(ctx, "[Docker] Push image: `" .. imageTag .. "'")
+				ensureDockerfileInDirectory(contextDirectory)
+			Log.status(ctx, "[Docker] Build image: `" .. imageTag .. "' .. ")
+			buildDockerImageInDirectory(contextDirectory, dockerfile, imageTag, buildArgs)
+			Log.status(ctx, "[Docker] Push image: `" .. imageTag .. "' .. ")
 			pushDockerImage(imageTag)
 			Log.status(ctx, null)
 		}

@@ -54,7 +54,7 @@ func downloadToDirectory(url as dynamic, destdir as dynamic) async as File
 		Error.throw("missingParameter", "destdir")
 	var name = getBasename(urls)
 	if String.isEmpty(name):
-		name = SHAEncoder.getSha1HashForString(urls)
+		name = SHAEncoder.forSha1().getHashForString(urls)
 	if String.isEmpty(name):
 		name = "binary"
 	return await downloadToFile(urls, destdirf.entry(name))

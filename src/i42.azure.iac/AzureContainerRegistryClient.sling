@@ -84,7 +84,7 @@ func generateUniqueAcrName async as string
 	var n = 0
 	loop {
 		var seed = String.forLongInteger(SystemClock.asUTCSeconds()) .. String.forInteger(Random.getSharedInstance().nextInteger())
-		v = String.getSubString(SHAEncoder.getSha1HashForString(seed), 0, 8) .. "acr"
+		v = String.getSubString(SHAEncoder.forSha1().getHashForString(seed), 0, 8) .. "acr"
 		var r = await acrClient.registries.checkNameAvailability({
 			name v
 			type "Microsoft.ContainerRegistry/registries"
@@ -151,11 +151,13 @@ func getContainerRegistryCredentials(acrName as string) async as dynamic
 
 func getDockerRegistryCredentials(acrName as string) async as DockerRegistryCredentials
 {
-	var acr = await getContainerRegistry(acrName)
-	var creds = await getContainerRegistryCredentials(acrName)
-	return new DockerRegistryCredentials() {
-		address String.asString(acr.loginServer)
-		username String.asString(creds.username)
-		password String.asString(creds.passwords && creds.passwords[0] && String.isNotEmpty(String.asString(creds.passwords[0].value)) ? creds.passwords[0].value : "")
-	}
+	return (await executeQuery("Docker Registry Credentials", func async as dynamic {
+		var acr = await getContainerRegistry(acrName)
+		var creds = await getContainerRegistryCredentials(acrName)
+		return new DockerRegistryCredentials() {
+			address String.asString(acr.loginServer)
+			username String.asString(creds.username)
+			password String.asString(creds.passwords && creds.passwords[0] && String.isNotEmpty(String.asString(creds.passwords[0].value)) ? creds.passwords[0].value : "")
+		}
+	})) as DockerRegistryCredentials
 }

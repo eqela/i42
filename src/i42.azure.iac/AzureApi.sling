@@ -29,6 +29,8 @@ class:
 // Reference: https://docs.microsoft.com/en-us/javascript/api/overview/azure/?view=azure-node-latest
 
 // identity
+// https://www.npmjs.com/package/@azure/identity
+// https://docs.microsoft.com/en-us/javascript/api/@azure/identity/?view=azure-node-latest
 
 depend "npm:@azure/identity:1.5.2"
 
@@ -38,9 +40,10 @@ func getIdentityApi static as dynamic
 }
 
 // network
+// https://www.npmjs.com/package/@azure/arm-network
+// https://docs.microsoft.com/en-us/javascript/api/@azure/arm-network/?view=azure-node-latest
 
 depend "npm:@azure/arm-network:26.0.0"
-// https://docs.microsoft.com/en-us/javascript/api/@azure/arm-network/?view=azure-node-latest
 
 func getArmNetworkApi static as dynamic
 {
@@ -56,6 +59,8 @@ func getNetworkManagementClient(context as AzureContext) static as dynamic
 }
 
 // resources
+// https://www.npmjs.com/package/@azure/arm-resources
+// https://docs.microsoft.com/en-us/javascript/api/@azure/arm-resources/?view=azure-node-latest
 
 depend "npm:@azure/arm-resources:30.0.0-beta.1"
 
@@ -73,6 +78,8 @@ func getResourceManagementClient(context as AzureContext) static as dynamic
 }
 
 // storage
+// https://www.npmjs.com/package/@azure/arm-storage
+// https://docs.microsoft.com/en-us/javascript/api/@azure/arm-storage/?view=azure-node-latest
 
 depend "npm:@azure/arm-storage:17.0.0"
 
@@ -90,6 +97,8 @@ func getStorageManagementClient(context as AzureContext) static as dynamic
 }
 
 // privatedns
+// https://www.npmjs.com/package/@azure/arm-privatedns
+// https://docs.microsoft.com/en-us/javascript/api/@azure/arm-privatedns/?view=azure-node-latest
 
 depend "npm:@azure/arm-privatedns:2.1.1"
 
@@ -107,6 +116,8 @@ func getPrivateDnsManagementClient(context as AzureContext) static as dynamic
 }
 
 // compute
+// https://www.npmjs.com/package/@azure/arm-compute
+// https://docs.microsoft.com/en-us/javascript/api/@azure/arm-compute/?view=azure-node-latest
 
 depend "npm:@azure/arm-compute:17.3.1"
 
@@ -124,6 +135,8 @@ func getComputeManagementClient(context as AzureContext) static as dynamic
 }
 
 // containerregistry
+// https://www.npmjs.com/package/@azure/arm-containerregistry
+// https://docs.microsoft.com/en-us/javascript/api/@azure/arm-containerregistry/?view=azure-node-latest
 
 depend "npm:@azure/arm-containerregistry:8.1.1"
 
@@ -140,25 +153,28 @@ func getContainerRegistryManagementClient(context as AzureContext) static as dyn
 	return lang "js" dynamic {{{ new api.ContainerRegistryManagementClient(creds, subId) }}}
 }
 
-// containerapp
+// containerapps
+// https://www.npmjs.com/package/@azure/arm-appcontainers
+// https://docs.microsoft.com/en-us/javascript/api/@azure/arm-appcontainers/?view=azure-node-latest
 
-// depend "npm:@azure/arm-app:1.0.0-alpha.20220421.1"
-depend "npm:@azure/arm-app:/home/mkxcode/scratch/azure-sdk-for-js/sdk/app/arm-app"
+depend "npm:@azure/arm-appcontainers:1.0.1-alpha.20220801.1"
 
-func getAppApi static as dynamic
+func getContainerAppsApi static as dynamic
 {
-	return NodeModule.require("@azure/arm-app")
+	return NodeModule.require("@azure/arm-appcontainers")
 }
 
 func getContainerAppsApiClient(context as AzureContext) static as dynamic
 {
-	var api = getAppApi()
+	var api = getContainerAppsApi()
 	var creds = context.getCredentialsObject()
 	var subId = context.subscriptionId
 	return lang "js" dynamic {{{ new api.ContainerAppsAPIClient(creds, subId) }}}
 }
 
 // operationalinsights
+// https://www.npmjs.com/package/@azure/arm-operationalinsights
+// https://docs.microsoft.com/en-us/javascript/api/@azure/arm-operationalinsights/?view=azure-node-latest
 
 depend "npm:@azure/arm-operationalinsights:8.0.0"
 
@@ -176,6 +192,7 @@ func getOperationalInsightsManagementClient(context as AzureContext) static as d
 }
 
 // postgresql-flexible
+// https://www.npmjs.com/package/@azure/arm-postgresql-flexible
 // https://docs.microsoft.com/en-us/javascript/api/@azure/arm-postgresql-flexible/?view=azure-node-latest
 
 depend "npm:@azure/arm-postgresql-flexible:6.0.0"
@@ -194,6 +211,8 @@ func getPostgreSQLManagementFlexibleServerClient(context as AzureContext) static
 }
 
 // keyvault
+// https://www.npmjs.com/package/@azure/arm-keyvault
+// https://docs.microsoft.com/en-us/javascript/api/@azure/arm-keyvault/?view=azure-node-latest
 
 depend "npm:@azure/arm-keyvault:2.0.0"
 
@@ -211,6 +230,8 @@ func getKeyVaultManagementClient(context as AzureContext) static as dynamic
 }
 
 // keyvault-secrets
+// https://www.npmjs.com/package/@azure/keyvault-secrets
+// https://docs.microsoft.com/en-us/javascript/api/@azure/keyvault-secrets/?view=azure-node-latest
 
 depend "npm:@azure/keyvault-secrets:4.4.0"
 
@@ -224,4 +245,23 @@ func getKeyVaultSecretClient(context as AzureContext, vaultUrl as string) static
 	var api = getKeyVaultSecretsApi()
 	var creds = context.getCredentialsObject()
 	return lang "js" dynamic {{{ new api.SecretClient(vaultUrl, creds) }}}
+}
+
+// front door
+// https://www.npmjs.com/package/@azure/arm-frontdoor
+// https://docs.microsoft.com/en-us/javascript/api/@azure/arm-frontdoor/?view=azure-node-latest
+
+depend "npm:@azure/arm-frontdoor:5.0.1"
+
+func getFrontDoorApi static as dynamic
+{
+	return NodeModule.require("@azure/arm-frontdoor")
+}
+
+func getFrontDoorManagementClient(context as AzureContext) static as dynamic
+{
+	var api = getFrontDoorApi()
+	var creds = context.getCredentialsObject()
+	var subId = context.subscriptionId
+	return lang "js" dynamic {{{ new api.FrontDoorManagementClient(creds, subId) }}}
 }

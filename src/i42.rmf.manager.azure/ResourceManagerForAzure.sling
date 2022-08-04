@@ -24,6 +24,10 @@
 
 import jk.fs
 import jk.log
+import jk.env
+import jk.sha
+import jk.time
+import jk.random
 import i42.azure.iac
 import i42.rmf.manager.common
 import i42.rmf.resources.common
@@ -96,6 +100,14 @@ func doGetAzureResourceName(resource as Resource) async as string
 			return name
 		var cc = new AzureStorageClient(ctx, azure)
 		return await cc.tryGetStorageAccountName()
+	}
+	if resource is FrontendGatewayResource {
+		var fgr = resource as! FrontendGatewayResource
+		var name = fgr.name
+		if String.isNotEmpty(name):
+			return name
+		var cc = new AzureFrontDoorClient(ctx, azure)
+		return await cc.tryGetFrontDoorName()
 	}
 	if resource is PostgreSQLServerResource {
 		var prs = resource as! PostgreSQLServerResource
@@ -266,7 +278,9 @@ func requireKeyVaultAccess(vaultName as string) async
 
 func generatePassword(instructions as GeneratePasswordInstructionsResource) async as string
 {
-	return "FIXME"
+	var srcs = String.forLongInteger(SystemClock.asSeconds()) .. String.forInteger(Random.getSharedInstance().nextInteger())
+	var hash = SHAEncoder.forSha1().getHashForString(srcs)
+	return String.getSubString(hash, 0, instructions.length)
 }
 
 func getStringValueForResource(resource as Resource) private async as StringValueForResource
@@ -293,6 +307,23 @@ func getStringValueForResource(resource as Resource) private async as StringValu
 		var v = new StringValueForResource()
 		v.valueGenerator = func async as string {
 			return await generatePassword(resource as! GeneratePasswordInstructionsResource)
+		}
+		return v
+	}
+	if resource is EnvironmentVariableValueResource {
+		var varname = (resource as! EnvironmentVariableValueResource).variableName
+		if String.isEmpty(varname):
+			Error.throw("noEnvironmentVariableName", resource)
+		var varvalue = EnvironmentVariable.get(varname)
+		var v = new StringValueForResource()
+		if not varvalue {
+			v.valueGenerator = func async as string {
+				Error.throw("environmentVariableNotSet", varname)
+				return null
+			}
+		}
+		else {
+			v.staticValue = varvalue
 		}
 		return v
 	}
@@ -345,10 +376,14 @@ func getStringValueForResource(resource as Resource) private async as StringValu
 		var csr = getContainerServiceResourceById(sid)
 		var serviceName = csr.name
 		var acaEnvName = await getContainerEnvironmentNameById(csr.containerEnvironmentId)
-		var cac = new AzureContainerAppClient(ctx, azure)
-		var acaDomainName = await cac.getContainerAppEnvironmentDomainName(acaEnvName)
+		var acaDomainName = await getContainerAppEnvironmentDomainName(acaEnvName)
 		var v = new StringValueForResource()
-		v.staticValue = "https://" .. serviceName .. "." .. acaDomainName
+		if (resource as! ContainerServiceURLReferenceResource).usePublicAddress {
+			v.staticValue = "https://" .. serviceName .. "." .. acaDomainName
+		}
+		else {
+			v.staticValue = "https://" .. serviceName .. ".internal." .. acaDomainName
+		}
 		return v
 	}
 	Error.throw("unableToGetStringValueForResource", resource)
@@ -482,6 +517,19 @@ func getOrCreateContainerEnvironmentInfraNetworkNamesForNetwork(networkId as str
 func getOrCreateContainerEnvironmentAppNetworkNamesForNetwork(networkId as string) private async as AzureNetworkNames:
 	return await getOrCreateSubnetForNetwork(networkId, "acaenv-app-subnet", "10.0.16.0/21", null)
 
+var acaEnvDomainNameCache = new map<string,string>
+
+func getContainerAppEnvironmentDomainName(acaEnvName as string) async as string
+{
+	var v = Map.get(acaEnvDomainNameCache, acaEnvName)
+	if v:
+		return v
+	var cac = new AzureContainerAppClient(ctx, azure)
+	v = await cac.getContainerAppEnvironmentDomainName(acaEnvName)
+	Map.set(acaEnvDomainNameCache, acaEnvName, v)
+	return v
+}
+
 func deployContainerEnvironmentResource(resource as ContainerEnvironmentResource) async
 {
 	var acaEnvName = await getAzureResourceName(resource, false)
@@ -494,6 +542,7 @@ func deployContainerEnvironmentResource(resource as ContainerEnvironmentResource
 		infraSubnetName infraNetworks.subnetName
 		containerSubnetName appNetworks.subnetName
 	})
+	Map.remove(acaEnvDomainNameCache, acaEnvName)
 }
 
 func getContainerServiceResourceById(id as string) as ContainerServiceResource
@@ -543,9 +592,12 @@ func deployContainerServiceResource(resource as ContainerServiceResource) async
 		var crname = await getContainerRegistryNameById(ir.containerRegistryId)
 		var crc = new AzureContainerRegistryClient(ctx, azure)
 		registryCreds = await crc.getDockerRegistryCredentials(crname)
-		var srcdir = File.forPath(ir.sourceDirectory)
-		if not srcdir.isDirectory():
-			throwError("noSuchDirectory", String.asString(srcdir))
+		var ctxdir = File.forPath(ir.contextDirectory)
+		if not ctxdir.isDirectory():
+			throwError("noSuchDirectory", String.asString(ctxdir))
+		var deps = new vector<File>
+		foreach depdirname in ir.dependencyPaths:
+			deps += File.forPath(depdirname)
 		var dockerfile = File.forPath(ir.dockerFile)
 		if not dockerfile.isFile():
 			throwError("noSuchFile", String.asString(dockerfile))
@@ -553,7 +605,7 @@ func deployContainerServiceResource(resource as ContainerServiceResource) async
 		var bargs = ir.buildArgs
 		if bargs:
 			buildArgs = await processConfigurationVariables(ir, bargs)
-		imageTag = new DockerBuilder(ctx).buildDirectoryToDockerRegistry(serviceName, srcdir, dockerfile, registryCreds, buildArgs, null)
+		imageTag = new DockerBuilder(ctx).buildDirectoryToDockerRegistry(serviceName, ctxdir, deps, dockerfile, registryCreds, buildArgs, null)
 	}
 	else {
 		throwError("unsupportedDockerImageResource", dockerImage)
@@ -633,12 +685,81 @@ func deployStorageBucketResource(resource as StorageBucketResource) async
 	await asc.updateStorageAccount(new AzureStorageClient.StorageAccountProperties() {
 		name name
 	})
+	if not name:
+		name = await getAzureResourceName(resource, false)
 	if resource.isPublic {
 		await asc.updatePublicContainer(name, "default")
 	}
 	else {
 		await asc.updatePrivateContainer(name, "default")
 	}
+}
+
+func removeProtocol(url as string) as string
+{
+	assert url
+	if String.startsWith(url, "https://"):
+		return String.getEndOfString(url, 8)
+	if String.startsWith(url, "http://"):
+		return String.getEndOfString(url, 7)
+	return url
+}
+
+func deployFrontendGatewayResource(resource as FrontendGatewayResource) async
+{
+	var name = await getAzureResourceName(resource, true)
+	var client = new AzureFrontDoorClient(ctx, azure)
+	var params = new AzureFrontDoorClient.FrontDoorProperties() {
+		name name
+	}
+	params.addToFrontends(new AzureFrontDoorClient.FrontendProperties() {
+		name "defaultFrontend"
+	})
+	if String.isNotEmpty(resource.hostName) && String.endsWith(resource.hostName, ".azurefd.net") == false {
+		params.addToFrontends(new AzureFrontDoorClient.FrontendProperties() {
+			name "customDomainFrontend"
+			hostName resource.hostName
+		})
+	}
+	foreach route in resource.routes {
+		var name = route.name
+		if String.isEmpty(name):
+			Error.throw("routeWithoutName", resource)
+		var pathPrefix = route.pathPrefix
+		if String.isEmpty(pathPrefix):
+			Error.throw("routeWithoutPathPrefix", resource)
+		var originUrl = removeProtocol(await getStringValueForResourceAsString(route.originUrl))
+		if String.isEmpty(originUrl):
+			Error.throw("routeWithoutOriginUrl", resource)
+		var healthCheckPath as string
+		var hcp = route.healthCheckPath
+		if hcp:
+			healthCheckPath = await getStringValueForResourceAsString(hcp)
+		var hbname as string
+		if String.isNotEmpty(healthCheckPath) {
+			hbname = "healthProbe" .. name
+			params.addToHealthProbes(new AzureFrontDoorClient.HealthProbeProperties() {
+				name hbname
+				path healthCheckPath
+				protocol "Https"
+				method "HEAD"
+				interval 120
+			})
+		}
+		var backendName = "backend" .. name
+		params.addToBackends(new AzureFrontDoorClient.BackendProperties() {
+			name backendName
+			address originUrl
+			healthProbeName hbname
+		})
+		params.addToPathPrefixRoutingRules(new AzureFrontDoorClient.PathPrefixRoutingRuleProperties() {
+			name "routingRule" .. name
+			frontendName "defaultFrontend"
+			backendName backendName
+			pathPrefix pathPrefix
+		})
+	}
+	await client.updateFrontDoor(params)
 }
 
 func deployResource(resource as Resource) async
@@ -678,6 +799,10 @@ func deployResource(resource as Resource) async
 	}
 	if resource is StorageBucketResource {
 		await deployStorageBucketResource(resource as! StorageBucketResource)
+		return
+	}
+	if resource is FrontendGatewayResource {
+		await deployFrontendGatewayResource(resource as! FrontendGatewayResource)
 		return
 	}
 	throwError("unsupportedResource", resource)
