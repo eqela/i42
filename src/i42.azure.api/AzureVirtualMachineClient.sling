@@ -35,7 +35,9 @@ model VirtualMachineProperties public
 	adminUsername as string
 	adminPassword as string
 	sshPublicKey as string
-	vmSize as string
+	vmType as string
+	vmImage as string
+	storageSizeGB as int
 }
 
 func updateVirtualMachine(properties as VirtualMachineProperties) async as dynamic
@@ -58,28 +60,45 @@ func updateVirtualMachine(properties as VirtualMachineProperties) async as dynam
 			]
 		}
 	}
+	var vmType = properties.vmType
+	if String.isEmpty(vmType):
+		vmType = "Standard_B2s"
+	var vmImage = properties.vmImage
+	if String.isEmpty(vmImage):
+		vmImage = "Canonical:0001-com-ubuntu-server-focal:20_04-lts:latest"
+	var vmImageComps = String.split(vmImage, ':')
+	var vmPublisher = Vector.get(vmImageComps, 0)
+	var vmOffer = Vector.get(vmImageComps, 1)
+	var vmSku = Vector.get(vmImageComps, 2)
+	var vmVersion = Vector.get(vmImageComps, 3)
 	if String.isNotEmpty(properties.configureScript):
 		osProfile.customData = Base64Encoder.encodeString(properties.configureScript)
+	var storage = properties.storageSizeGB
+	if storage < 30:
+		storage = 30
 	var params = {
 		location context.location
 		osProfile osProfile
 		hardwareProfile {
-			vmSize properties.vmSize
+			vmSize vmType
 		}
 		storageProfile {
 			imageReference {
-				offer "0001-com-ubuntu-server-focal"
-				sku "20_04-lts"
-				publisher "Canonical"
-				version "latest"
+				offer vmOffer
+				sku vmSku
+				publisher vmPublisher
+				version vmVersion
 			}
 			osDisk {
-				caching "ReadWrite"
+				name properties.name .. "-osdisk"
+				caching "None"
+				createOption "FromImage"
+				deleteOption "Delete"
+				diskSizeGB storage
+				// encryptionSettings
 				managedDisk {
 					storageAccountType "Standard_LRS"
 				}
-				createOption "FromImage"
-				name properties.name .. "-osdisk"
 			}
 		}
 		diagnosticsProfile {
@@ -100,5 +119,22 @@ func updateVirtualMachine(properties as VirtualMachineProperties) async as dynam
 	return await executeUpdate("Virtual Machine", func async as dynamic {
 		await client.virtualMachines.beginCreateOrUpdateAndWait(context.resourceGroup, properties.name, params)
 		return await client.virtualMachines.get(context.resourceGroup, properties.name)
+	})
+}
+
+func getVirtualMachine(vmName as string) async as dynamic
+{
+	return await executeQuery("Get virtual machine `" .. vmName .. "'", func async as dynamic {
+		var client = AzureApi.getComputeManagementClient(context)
+		return await client.virtualMachines.get(context.resourceGroup, vmName)
+	})
+}
+
+func deleteVirtualMachine(vmName as string) async
+{
+	await executeUpdate("Delete virtual machine `" .. vmName .. "'", func async as dynamic {
+		var client = AzureApi.getComputeManagementClient(context)
+		await client.virtualMachines.beginDeleteAndWait(context.resourceGroup, vmName)
+		return null
 	})
 }

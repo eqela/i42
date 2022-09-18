@@ -68,6 +68,31 @@ model NatGatewayProperties public
 	publicIpId as string
 }
 
+model NetworkInterfaceProperties public
+{
+	name as string
+	subnetId as string
+	pipId as string
+	nsgId as string
+}
+
+model NetworkSecurityGroupRuleProperties public
+{
+	name as string
+	priority as int
+	protocol as string
+	sourceAddress as string
+	sourcePorts as string
+	destinationAddress as string
+	destinationPorts as string
+}
+
+model NetworkSecurityGroupProperties public
+{
+	name as string
+	rules as NetworkSecurityGroupRuleProperties[]
+}
+
 func getVirtualNetwork(name as string) async as dynamic
 {
 	var networkClient = AzureApi.getNetworkManagementClient(context)
@@ -221,6 +246,27 @@ func getSubnet(vnetName as string, subnetName as string) async as dynamic
 	return await networkClient.subnets.get(context.resourceGroup, vnetName, subnetName)
 }
 
+func getSubnetNames(vnetName as string) async as vector<string>
+{
+	var v = new vector<string>
+	var networkClient = AzureApi.getNetworkManagementClient(context)
+	var list = await networkClient.subnets.list(context.resourceGroup, vnetName)
+	while list {
+		var rr = await list.next()
+		if not rr:
+			break
+		var value = rr.value
+		if value {
+			var name = value.name
+			if String.isNotEmpty(name):
+				v += name
+		}
+		if rr.done == true:
+			break
+	}
+	return v
+}
+
 func updateSubnet(vnetName as string, properties as SubnetProperties) async as dynamic
 {
 	return await executeUpdate("Subnet `" .. properties.name .. "'", func async as dynamic {
@@ -265,16 +311,21 @@ func updateSubnet(vnetName as string, properties as SubnetProperties) async as d
 	})
 }
 
-func updateNetworkInterface(nicName as string, subnetId as string, pipId as string, nsgId as string) async as dynamic
+func deleteSubnet(vnetName as string, subnetName as string) async
+{
+	await executeUpdate("Delete subnet `" .. subnetName .. "'", func async as dynamic {
+		var networkClient = AzureApi.getNetworkManagementClient(context)
+		await networkClient.subnets.beginDeleteAndWait(context.resourceGroup, vnetName, subnetName)
+		return null
+	})
+}
+
+func updateNetworkInterface(properties as NetworkInterfaceProperties) async as dynamic
 {
 	return await executeUpdate("Network Interface", func async as dynamic {
 		var networkClient = AzureApi.getNetworkManagementClient(context)
 		var ipconfig = {
-			name nicName + "-ipconfig"
-			privateIPAllocationMethod "Dynamic"
-			subnet {
-				id subnetId
-			}
+			name properties.name + "-ipconfig"
 		}
 		var params = {
 			location context.location
@@ -282,18 +333,69 @@ func updateNetworkInterface(nicName as string, subnetId as string, pipId as stri
 				ipconfig
 			]
 		}
-		if String.isNotEmpty(pipId) {
+		if String.isNotEmpty(properties.subnetId) {
+			ipconfig.subnet = {
+				id properties.subnetId
+			}
+			ipconfig.privateIPAllocationMethod = "Dynamic"
+		}
+		if String.isNotEmpty(properties.pipId) {
 			ipconfig.publicIPAddress = {
-				id pipId
+				id properties.pipId
 			}
 		}
-		if String.isNotEmpty(nsgId) {
+		if String.isNotEmpty(properties.nsgId) {
 			params.networkSecurityGroup = {
-				id nsgId
+				id properties.nsgId
 			}
 		}
-		await networkClient.networkInterfaces.beginCreateOrUpdateAndWait(context.resourceGroup, nicName, params)
-		return await networkClient.networkInterfaces.get(context.resourceGroup, nicName)
+		await networkClient.networkInterfaces.beginCreateOrUpdateAndWait(context.resourceGroup, properties.name, params)
+		return await networkClient.networkInterfaces.get(context.resourceGroup, properties.name)
+	})
+}
+
+func deleteNetworkInterface(nicName as string) async
+{
+	await executeUpdate("Delete network interface `" .. nicName .. "'", func async as dynamic {
+		var networkClient = AzureApi.getNetworkManagementClient(context)
+		await networkClient.networkInterfaces.beginDeleteAndWait(context.resourceGroup, nicName)
+		return null
+	})
+}
+
+func updateNetworkSecurityGroup(properties as NetworkSecurityGroupProperties) async as dynamic
+{
+	return await executeUpdate("Network Security Group", func async as dynamic {
+		var networkClient = AzureApi.getNetworkManagementClient(context)
+		var securityRules = []
+		foreach rule in properties.rules {
+			securityRules += {
+				name properties.name .. "-" .. rule.name
+				access "Allow"
+				destinationAddressPrefix rule.destinationAddress ? rule.destinationAddress : "*"
+				destinationPortRange rule.destinationPorts ? rule.destinationPorts : "*"
+				direction "Inbound"
+				priority rule.priority
+				protocol String.capitalize(rule.protocol)
+				sourceAddressPrefix rule.sourceAddress ? rule.sourceAddress : "*"
+				sourcePortRange rule.sourcePorts ? rule.sourcePorts : "*"
+			}
+		}
+		var params = {
+			location context.location
+			securityRules securityRules
+		}
+		await networkClient.networkSecurityGroups.beginCreateOrUpdateAndWait(context.resourceGroup, properties.name, params)
+		return await networkClient.networkSecurityGroups.get(context.resourceGroup, properties.name)
+	})
+}
+
+func deleteNetworkSecurityGroup(nsgName as string) async
+{
+	await executeUpdate("Delete Network Security Group `" .. nsgName .. "'", func async as dynamic {
+		var networkClient = AzureApi.getNetworkManagementClient(context)
+		await networkClient.networkSecurityGroups.beginDeleteAndWait(context.resourceGroup, nsgName)
+		return null
 	})
 }
 
@@ -315,6 +417,15 @@ func updatePublicIpAddress(properties as PublicIpAddressProperties) async as dyn
 		}
 		await networkClient.publicIPAddresses.beginCreateOrUpdateAndWait(context.resourceGroup, properties.name, params)
 		return await networkClient.publicIPAddresses.get(context.resourceGroup, properties.name)
+	})
+}
+
+func deletePublicIpAddress(pipName as string) async
+{
+	await executeUpdate("Delete public IP address `" .. pipName .. "'", func async as dynamic {
+		var networkClient = AzureApi.getNetworkManagementClient(context)
+		await networkClient.publicIPAddresses.beginDeleteAndWait(context.resourceGroup, pipName)
+		return null
 	})
 }
 
@@ -352,4 +463,10 @@ func updateNatGateway(properties as NatGatewayProperties) async as dynamic
 		await networkClient.natGateways.beginCreateOrUpdateAndWait(context.resourceGroup, properties.name, params)
 		return await networkClient.natGateways.get(context.resourceGroup, properties.name)
 	})
+}
+
+func getNatGateway(name as string) async as dynamic
+{
+	var networkClient = AzureApi.getNetworkManagementClient(context)
+	return await networkClient.natGateways.get(context.resourceGroup, name)
 }

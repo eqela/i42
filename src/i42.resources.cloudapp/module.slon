@@ -1,0 +1,5 @@
+{
+    imports [
+        "i42.resources.common"
+    ]
+}

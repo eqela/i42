@@ -1,0 +1,112 @@
+import jk.fs
+import jk.env
+import jk.log
+import jk.slon
+import jk.console
+import i42.azure.api
+import i42.resources.common
+import i42.resources.cloudapp
+import i42.resources.manager
+import i42.resources.manager.azure
+
+class abstract:
+
+func createApplicationResource(configData as DynamicMap) abstract as ApplicationResource
+
+func getRequiredValue(data as DynamicMap, key as string) as string
+{
+	var v as string
+	if data:
+		v = data.getString(key)
+	if String.isEmpty(v):
+		Error.throw("missingValue", key)
+	return v
+}
+
+func getOptionalValue(data as DynamicMap, key as string) as string
+{
+	assert data
+	return data.getString(key)
+}
+
+func createResourceManager(ctx as LoggingContext, targetPlatform as string, configData as DynamicMap, app as ApplicationResource) virtual as ResourceManager
+{
+	if targetPlatform == "azure" {
+		var azureSubscriptionId = getRequiredValue(configData, "azureSubscriptionId")
+		var azureLocation = getRequiredValue(configData, "azureLocation")
+		var azureResourceGroup = getRequiredValue(configData, "azureResourceGroup")
+		var azureTenantId = getRequiredValue(configData, "azureTenantId")
+		var azureClientId = EnvironmentVariable.get("AZURE_CLIENT_ID")
+		var azureClientSecret = EnvironmentVariable.get("AZURE_CLIENT_SECRET")
+		var azure = new AzureContext()
+		azure.subscriptionId = azureSubscriptionId
+		azure.location = azureLocation
+		azure.resourceGroup = azureResourceGroup
+		var creds = new AzureCredentials()
+		creds.tenantId = azureTenantId
+		creds.clientId = azureClientId
+		creds.clientSecret = azureClientSecret
+		azure.credentials = creds
+		return new ResourceManagerForAzure(ctx, app, azure)
+	}
+	Error.throw("unsupportedTargetPlatform", targetPlatform)
+	return null
+}
+
+func processNextArgument(av as ArgumentVector) virtual as bool:
+	return false
+
+func execute(args as array<string>) async as int
+{
+	return await ConsoleApplication.executeMain(args, func(ctx as ConsoleApplicationContext, av as ArgumentVector) async {
+		var resourceId as string
+		var configFile as File
+		var configParams = new DynamicMap()
+		while av.hasMore() {
+			if av.acceptOption("config") {
+				configFile = File.forPath(av.getOptionValue())
+			}
+			else if av.acceptOption("set") {
+				var comps = String.split(av.getOptionValue(), '=', 2)
+				var key = Vector.get(comps, 0)
+				var val = Vector.get(comps, 1)
+				if String.isNotEmpty(key):
+					configParams.setString(key, val)
+			}
+			else {
+				if String.isEmpty(resourceId) {
+					resourceId = av.acceptAnyValue()
+				}
+				else {
+					if not processNextArgument(av):
+						Error.throw("unsupportedParameter", av.getCurrent())
+				}
+			}
+		}
+		var configData as DynamicMap
+		if configFile {
+			if not configFile.isFile():
+				Error.throw("noSuchFile", String.asString(configFile))
+			configData = SLONParser.parseFile(configFile) as DynamicMap
+			if not configData:
+				Error.throw("failedToReadConfigFile", String.asString(configFile))
+			configData.mergeFrom(configParams)
+		}
+		else {
+			configData = configParams
+		}
+		var targetPlatform = getOptionalValue(configData, "targetPlatform")
+		if String.isEmpty(targetPlatform):
+			Error.throw("configurationValueMissing", "targetPlatform")
+		var app = createApplicationResource(configData)
+		if not app:
+			Error.throw("failedToCreateApplicationResource", null)
+		var resman = createResourceManager(ctx, targetPlatform, configData, app)
+		if String.isNotEmpty(resourceId) {
+			await resman.deployResourceById(resourceId)
+		}
+		else {
+			await resman.deployApplication()
+		}
+	})
+}

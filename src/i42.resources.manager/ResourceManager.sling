@@ -22,7 +22,19 @@
  * SOFTWARE.
  */
 
-class is Resource:
+import jk.log
+import i42.resources.cloudapp
 
-prop names as vector<string>
+class abstract:
 
+prop ctx as LoggingContext
+prop application as ApplicationResource
+
+ctor(ctx as LoggingContext, application as ApplicationResource)
+{
+    this.ctx = ctx
+    this.application = application
+}
+
+func deployResourceById(id as string) async abstract
+func deployApplication async abstract

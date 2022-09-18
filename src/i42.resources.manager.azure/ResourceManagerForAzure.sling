@@ -28,10 +28,10 @@ import jk.env
 import jk.sha
 import jk.time
 import jk.random
-import i42.azure.iac
-import i42.rmf.manager.common
-import i42.rmf.resources.common
-import i42.rmf.resources.cloudapp
+import i42.azure.api
+import i42.resources.manager
+import i42.resources.common
+import i42.resources.cloudapp
 import i42.docker.model
 import i42.docker.util
 
@@ -50,6 +50,18 @@ class StringValueForResource
 		return staticValue
 	}
 }
+
+class AzureNetworkNames
+{
+	prop vnetName as string
+	prop subnetName as string
+}
+
+const CIDR_VNET = "10.0.0.0/16"
+const CIDR_SUBNET_POSTGRESQL = "10.0.1.0/24"
+const CIDR_SUBNET_VIRTUAL_MACHINE = "10.0.2.0/24"
+const CIDR_SUBNET_ACAENV_INFRA = "10.0.8.0/21"
+const CIDR_SUBNET_ACAENV_APP = "10.0.16.0/21"
 
 prop azure as AzureContext
 
@@ -117,6 +129,10 @@ func doGetAzureResourceName(resource as Resource) async as string
 		var psc = new AzurePostgreSQLClient(ctx, azure)
 		return await psc.tryGetDatabaseServerName()
 	}
+	if resource is VirtualMachineResource {
+		var vmr = resource as! VirtualMachineResource
+		return vmr.name
+	}
 	if resource is PostgreSQLDatabaseResource {
 		var prs = resource as! PostgreSQLDatabaseResource
 		return prs.name
@@ -176,7 +192,7 @@ func deployNetworkResource(resource as NetworkResource) async
 		})
 		natGwId = String.asString(ngw.id)
 	}
-	var cidrBlock = "10.0.0.0/16"
+	var cidrBlock = CIDR_VNET
 	var vnps = new AzureNetworkClient.VirtualNetworkProperties() {
 		name vnetName
 		cidrBlock cidrBlock
@@ -196,12 +212,6 @@ func getNetworkNameById(id as string) async as string
 {
 	var v = getNetworkResourceById(id)
 	return await getAzureResourceName(v, false)
-}
-
-class AzureNetworkNames
-{
-	prop vnetName as string
-	prop subnetName as string
 }
 
 func getContainerRegistryResourceById(id as string) as ContainerRegistryResource
@@ -430,6 +440,20 @@ func getAzureVmTypeForDescription(description as ServerTypeDescriptionResource) 
 	return null
 }
 
+func getAzureVmImageForDescription(description as OperatingSystemDescriptionResource) as string
+{
+	if not description:
+		throwError("nullOperatingSystemDescription", null)
+	foreach name in description.names {
+		if String.startsWith(name, "azure:"):
+			return String.getEndOfString(name, 6)
+		if name == "ubuntu2004":
+			return "Canonical:0001-com-ubuntu-server-focal:20_04-lts:latest"
+	}
+	throwError("noAzureOperatingSystemFound", description)
+	return null
+}
+
 func getDataSizeInGigaBytes(description as DataSizeDescriptionResource) as int
 {
 	if not description:
@@ -446,7 +470,7 @@ func getDataSizeInGigaBytes(description as DataSizeDescriptionResource) as int
 }
 
 func getOrCreatePostgreSQLServerNetworkNamesForNetwork(networkId as string) private async as AzureNetworkNames:
-	return await getOrCreateSubnetForNetwork(networkId, "postgresql-subnet", "10.0.1.0/24", "Microsoft.DBforPostgreSQL/flexibleServers")
+	return await getOrCreateSubnetForNetwork(networkId, "postgresql-subnet", CIDR_SUBNET_POSTGRESQL, "Microsoft.DBforPostgreSQL/flexibleServers")
 
 func getOrCreateSubnetForNetwork(networkId as string, subnetName as string, subnetCidrBlock as string, delegation as string) private async as AzureNetworkNames
 {
@@ -512,10 +536,10 @@ func getContainerEnvironmentNameById(id as string) async as string
 }
 
 func getOrCreateContainerEnvironmentInfraNetworkNamesForNetwork(networkId as string) private async as AzureNetworkNames:
-	return await getOrCreateSubnetForNetwork(networkId, "acaenv-infra-subnet", "10.0.8.0/21", null)
+	return await getOrCreateSubnetForNetwork(networkId, "acaenv-infra-subnet", CIDR_SUBNET_ACAENV_INFRA, null)
 
 func getOrCreateContainerEnvironmentAppNetworkNamesForNetwork(networkId as string) private async as AzureNetworkNames:
-	return await getOrCreateSubnetForNetwork(networkId, "acaenv-app-subnet", "10.0.16.0/21", null)
+	return await getOrCreateSubnetForNetwork(networkId, "acaenv-app-subnet", CIDR_SUBNET_ACAENV_APP, null)
 
 var acaEnvDomainNameCache = new map<string,string>
 
@@ -715,11 +739,13 @@ func deployFrontendGatewayResource(resource as FrontendGatewayResource) async
 	params.addToFrontends(new AzureFrontDoorClient.FrontendProperties() {
 		name "defaultFrontend"
 	})
+	var hasCustomDomainFrontend = false
 	if String.isNotEmpty(resource.hostName) && String.endsWith(resource.hostName, ".azurefd.net") == false {
 		params.addToFrontends(new AzureFrontDoorClient.FrontendProperties() {
 			name "customDomainFrontend"
 			hostName resource.hostName
 		})
+		hasCustomDomainFrontend = true
 	}
 	foreach route in resource.routes {
 		var name = route.name
@@ -753,13 +779,88 @@ func deployFrontendGatewayResource(resource as FrontendGatewayResource) async
 			healthProbeName hbname
 		})
 		params.addToPathPrefixRoutingRules(new AzureFrontDoorClient.PathPrefixRoutingRuleProperties() {
-			name "routingRule" .. name
+			name "routingRule" .. name .. "0"
 			frontendName "defaultFrontend"
 			backendName backendName
 			pathPrefix pathPrefix
 		})
+		if hasCustomDomainFrontend {
+			params.addToPathPrefixRoutingRules(new AzureFrontDoorClient.PathPrefixRoutingRuleProperties() {
+				name "routingRule" .. name .. "1"
+				frontendName "customDomainFrontend"
+				backendName backendName
+				pathPrefix pathPrefix
+			})
+		}
 	}
 	await client.updateFrontDoor(params)
+}
+
+func getOrCreateVirtualMachineNetworkNamesForNetwork(networkId as string) private async as AzureNetworkNames:
+	return await getOrCreateSubnetForNetwork(networkId, "vm-subnet", CIDR_SUBNET_VIRTUAL_MACHINE, null)
+
+func deployVirtualMachineResource(resource as VirtualMachineResource) async
+{
+	var name = await getAzureResourceName(resource, false)
+	var nicId as string
+	var networkId = resource.networkId
+	if String.isNotEmpty(networkId) || resource.allocatePublicAddress {
+		var anc = new AzureNetworkClient(ctx, azure)
+		var nicprops = new AzureNetworkClient.NetworkInterfaceProperties()
+		nicprops.name = name .. "-nic"
+		if String.isNotEmpty(networkId) {
+			var networks = await getOrCreateVirtualMachineNetworkNamesForNetwork(networkId)
+			var subnet = await anc.getSubnet(networks.vnetName, networks.subnetName)
+			nicprops.subnetId = String.asString(subnet.id)
+		}
+		if resource.allocatePublicAddress {
+			var pipprops = new AzureNetworkClient.PublicIpAddressProperties()
+			pipprops.name = name .. "-pip"
+			var pip = await anc.updatePublicIpAddress(pipprops)
+			nicprops.pipId = String.asString(pip.id)
+		}
+		var nsgParams = new AzureNetworkClient.NetworkSecurityGroupProperties() {
+			name name .. "-nsg"
+		}
+		nsgParams.addToRules(new AzureNetworkClient.NetworkSecurityGroupRuleProperties() {
+			name "ssh"
+			priority 100
+			protocol "tcp"
+			destinationPorts "22"
+		})
+		var nsg = await anc.updateNetworkSecurityGroup(nsgParams)
+		nicprops.nsgId = String.asString(nsg.id)
+		var nic = await anc.updateNetworkInterface(nicprops)
+		nicId = String.asString(nic.id)
+	}
+	var client = new AzureVirtualMachineClient(ctx, azure)
+	var username as string
+	var password as string
+	var sshKey as string
+	var configureScript as string
+	if resource.username:
+		username = await getStringValueForResourceAsString(resource.username)
+	if resource.password:
+		password = await getStringValueForResourceAsString(resource.password)
+	if resource.sshKey:
+		sshKey = await getStringValueForResourceAsString(resource.sshKey)
+	if resource.configureScript:
+		configureScript = await getStringValueForResourceAsString(resource.configureScript)
+	var storageSizeGB = 0
+	if resource.storageSize:
+		storageSizeGB = getDataSizeInGigaBytes(resource.storageSize)
+	var vm = await client.updateVirtualMachine(new AzureVirtualMachineClient.VirtualMachineProperties() {
+		name name
+		hostname name
+		nicId nicId
+		configureScript configureScript
+		adminUsername username
+		adminPassword password
+		sshPublicKey sshKey
+		vmType getAzureVmTypeForDescription(resource.serverType)
+		vmImage getAzureVmImageForDescription(resource.operatingSystem)
+		storageSizeGB storageSizeGB
+	})
 }
 
 func deployResource(resource as Resource) async
@@ -803,6 +904,10 @@ func deployResource(resource as Resource) async
 	}
 	if resource is FrontendGatewayResource {
 		await deployFrontendGatewayResource(resource as! FrontendGatewayResource)
+		return
+	}
+	if resource is VirtualMachineResource {
+		await deployVirtualMachineResource(resource as! VirtualMachineResource)
 		return
 	}
 	throwError("unsupportedResource", resource)
