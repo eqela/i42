@@ -234,6 +234,28 @@ func updateFrontDoor(properties as FrontDoorProperties) async as dynamic
 			}
 		}
 	}
+	var frontendRefs = []
+	foreach frontend in properties.frontends {
+		frontendRefs += {
+			id context.createResourceId("Microsoft.Network/frontDoors/" .. name .. "/frontEndEndpoints", frontend.name)
+		}
+	}
+	routingRules += {
+		name "HttpToHttpsRedirect"
+		acceptedProtocols [
+			"Http"
+		]
+		enabledState "Enabled"
+		frontendEndpoints frontendRefs
+		patternsToMatch [
+			"/*"
+		]
+		routeConfiguration {
+				odataType "#Microsoft.Azure.FrontDoor.Models.FrontdoorRedirectConfiguration"
+				redirectProtocol "HttpsOnly"
+				redirectType "Found"
+		}
+	}
 	var params = {
 		location "global"
 		loadBalancingSettings [
