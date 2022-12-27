@@ -108,7 +108,7 @@ func doExecute(ctx as LoggingContext, sourceDir as File, destDir as File, packag
 		prermFile.setContentsUTF8(prerm.toString())
 	}
 	var controlTarballFile = tmp.entry("control.tar.gz")
-	var tar = new ExternalTarGZipWriter()
+	var tar = new TarGZipWriterExternalCommand()
 	assert tar.tarDir(ctx, controlDir, controlTarballFile, true):
 		Log.error(ctx, "Failed to write control tarfile.")
 	var dataTarballFile = tmp.entry("data.tar.gz")

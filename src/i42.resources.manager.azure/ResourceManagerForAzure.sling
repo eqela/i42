@@ -448,7 +448,9 @@ func getAzureVmImageForDescription(description as OperatingSystemDescriptionReso
 		if String.startsWith(name, "azure:"):
 			return String.getEndOfString(name, 6)
 		if name == "ubuntu2004":
-			return "Canonical:0001-com-ubuntu-server-focal:20_04-lts:latest"
+			return "Canonical:0001-com-ubuntu-server-focal:20_04-lts-gen2:latest"
+		if name == "ubuntu2204":
+			return "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest"
 	}
 	throwError("noAzureOperatingSystemFound", description)
 	return null

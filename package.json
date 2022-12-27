@@ -1,10 +1,7 @@
 {
-    "name": "@eqela/i42",
-    "scripts": {
-        "build": "npx slingdev build src -o dist",
-        "clean": "rm -rf dist node_modules src/.build"
-    },
-    "devDependencies": {
-        "@eqela/slingdev": "3.4.0"
-    }
+	"name": "@eqela/i42",
+	"scripts": {
+		"build": "npx -y @eqela/slingc@3.5.0 build src -cachedir .cache -output dist -npm-install",
+		"clean": "rm -rf .cache dist"
+	}
 }

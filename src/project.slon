@@ -1,11 +1,12 @@
 {
+	vendorId "eqela"
+	projectId "i42"
+	title "Eqela i42"
 	libraries [
 		{
 			vendor "eqela"
 			name "jkop"
-			version "dev"
-			gitUrl "https://github.com/eqela/jkop.git"
-			gitRef "4.2.0"
+			version "4.7.0"
 		}
 	]
 }

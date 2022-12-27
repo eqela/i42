@@ -84,7 +84,6 @@ func updateContainerAppEnvironment(properties as ContainerAppEnvironmentProperti
 				Error.throw("subnetNotFound", properties.vnetName .. ":" .. properties.containerSubnetName)
 			vnetConfig = {
 				internal false
-				runtimeSubnetId appSubnet.id
 				infrastructureSubnetId infraSubnet.id
 				dockerBridgeCidr "10.2.0.1/16"
 				platformReservedCidr "10.1.0.0/16"
