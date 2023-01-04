@@ -53,6 +53,8 @@ func getDirectoryContentsHash(directory as File) as string
 
 func loginToDockerRegistry(registry as DockerRegistryCredentials)
 {
+	if registry == null || String.isEmpty(registry.username) || String.isEmpty(registry.password):
+		return
 	var pl = ProcessLauncher.forCommand("docker")
 	pl.addToParams("login")
 	pl.addToParams("-u")
@@ -73,6 +75,8 @@ func loginToDockerRegistry(registry as DockerRegistryCredentials)
 
 func logoutFromDockerRegistry(registry as DockerRegistryCredentials)
 {
+	if registry == null || String.isEmpty(registry.username) || String.isEmpty(registry.password):
+		return
 	var pl = ProcessLauncher.forCommand("docker")
 	pl.addToParams("logout")
 	pl.addToParams(registry.address)
