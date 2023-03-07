@@ -125,7 +125,7 @@ func decodeXmlResponse(response as WebClient.Response, apispec as DynamicMap, re
 func decodeJsonResponse(response as WebClient.Response, apispec as DynamicMap) as object:
 	return JSONParser.parseBuffer(response.body)
 
-func encodeParameterToQueryStringMap(key as string, value as object, map as map<string,string>)
+func encodeParameterToQueryStringMap(key as string, value as dynamic, map as map<string,string>)
 {
 	if value {
 		var dm = value as DynamicMap
@@ -239,7 +239,7 @@ func getHeaderFromResponse(response as WebClient.Response, header as string) as 
 	return null
 }
 
-func asBuffer(data as object) as buffer
+func asBuffer(data as dynamic) as buffer
 {
 	assert data
 	if data is string:
@@ -326,7 +326,7 @@ func callAwsApi(specmap as map, result as DynamicModel) async
 				}
 				if location == "uri" {
 					if parametersModel.hasValue(field.name):
-						uriparams.setObject(locationName, parametersModel.getField(field.name))
+						uriparams.setDynamic(locationName, parametersModel.getField(field.name))
 				}
 				else if location == "header" {
 					if parametersModel.hasValue(field.name):

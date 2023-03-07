@@ -277,7 +277,7 @@ func getAllNetworks async as vector<Network>
 	if not networkList:
 		onInvalidResponse(response)
 	var v = new vector<Network>
-	foreach object in networkList.toVector() {
+	foreach object as DynamicMap in networkList.toVector() {
 		var network = Network.forData(object)
 		if not network:
 			onInvalidResponse(response)
@@ -296,7 +296,7 @@ func getAllZones async as vector<Zone>
 	if not networkList:
 		onInvalidResponse(response)
 	var v = new vector<Zone>
-	foreach object in networkList.toVector() {
+	foreach object as DynamicMap in networkList.toVector() {
 		var z = Zone.forData(object)
 		if not z:
 			onInvalidResponse(response)
@@ -315,7 +315,7 @@ func getAllServers async as vector<Server>
 	if not list:
 		onInvalidResponse(response)
 	var v = new vector<Server>
-	foreach object in list.toVector() {
+	foreach object as DynamicMap in list.toVector() {
 		var z = Server.forData(object)
 		if not z:
 			onInvalidResponse(response)

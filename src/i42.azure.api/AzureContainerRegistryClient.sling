@@ -105,7 +105,7 @@ func updateContainerRegistry(properties as ContainerRegistryProperties) async as
 		Log.status(ctx, "[Query] Determining container registry name..")
 		var dcr = await tryGetContainerRegistry(null)
 		if dcr:
-			acrName = dcr.name
+			acrName = String.asString(dcr.name)
 		if String.isEmpty(acrName):
 			acrName = await generateUniqueAcrName()
 		Log.status(ctx, null)

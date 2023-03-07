@@ -216,7 +216,7 @@ func updateVirtualNetwork(properties as VirtualNetworkProperties) async as dynam
 			}
 			subnets += sno
 		}
-		var params as dyno
+		var params as dynamic
 		try {
 			params = await networkClient.virtualNetworks.get(context.resourceGroup, properties.name)
 		}
@@ -257,7 +257,7 @@ func getSubnetNames(vnetName as string) async as vector<string>
 			break
 		var value = rr.value
 		if value {
-			var name = value.name
+			var name = String.asString(value.name)
 			if String.isNotEmpty(name):
 				v += name
 		}
@@ -271,7 +271,7 @@ func updateSubnet(vnetName as string, properties as SubnetProperties) async as d
 {
 	return await executeUpdate("Subnet `" .. properties.name .. "'", func async as dynamic {
 		var networkClient = AzureApi.getNetworkManagementClient(context)
-		var params as dyno
+		var params as dynamic
 		try {
 			params = await networkClient.subnets.get(context.resourceGroup, vnetName, properties.name)
 		}

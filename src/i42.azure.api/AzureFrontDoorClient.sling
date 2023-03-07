@@ -107,7 +107,7 @@ func getFrontDoor(name as string) async as dynamic
 func getFrontDoorName async as string
 {
 	var v = await getFrontDoor(null)
-	return v.name
+	return String.asString(v.name)
 }
 
 func generateUniqueFrontDoorName async as string

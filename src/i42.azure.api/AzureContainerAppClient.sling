@@ -132,7 +132,7 @@ func updateContainerApp(deployment as ContainerAppDeploymentProperties, properti
 			}
 		}
 	}
-	var resources as dyno
+	var resources as dynamic
 	if properties.cpu < 1 && String.isEmpty(properties.memory) {
 		resources = null
 	}
@@ -142,7 +142,7 @@ func updateContainerApp(deployment as ContainerAppDeploymentProperties, properti
 			memory properties.memory
 		}
 	}
-	var scale as dyno
+	var scale as dynamic
 	if properties.minReplicas < 1 && properties.maxReplicas < 1 {
 		scale = null
 	}
@@ -152,7 +152,7 @@ func updateContainerApp(deployment as ContainerAppDeploymentProperties, properti
 			maxReplicas properties.maxReplicas
 		}
 	}
-	var registries as vector<dyno>
+	var registries as vector<dynamic>
 	if not deployment.registry {
 		registries = null
 	}

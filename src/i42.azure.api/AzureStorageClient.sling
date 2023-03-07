@@ -96,7 +96,7 @@ func getStorageAccount(name as string) async as dynamic
 func getStorageAccountName async as string
 {
 	var v = await getStorageAccount(null)
-	return v.name
+	return String.asString(v.name)
 }
 
 func generateUniqueStorageAccountName async as string
@@ -123,7 +123,7 @@ func generateUniqueStorageAccountName async as string
 func getStorageAccountKeys(accountName as string) async as vector<string>
 {
 	var client = AzureApi.getStorageManagementClient(context)
-	var keys = (await client.storageAccounts.listKeys(context.resourceGroup, accountName)).keys as! vector<dyno>
+	var keys = (await client.storageAccounts.listKeys(context.resourceGroup, accountName)).keys as! vector<dynamic>
 	var v = new vector<string>
 	foreach key in keys:
 		v += String.asString(key.value)
@@ -138,7 +138,7 @@ func updateStorageAccount(properties as StorageAccountProperties) async as dynam
 			var v as string
 			var dcr = await tryGetStorageAccount(null)
 			if dcr:
-				v = dcr.name
+				v = String.asString(dcr.name)
 			if String.isEmpty(v):
 				v = await generateUniqueStorageAccountName()
 			return v

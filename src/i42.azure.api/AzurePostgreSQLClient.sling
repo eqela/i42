@@ -124,7 +124,7 @@ func updateDatabaseServer(properties as PostgreSQLServerProperties) async as dyn
 			var v as string
 			var dcr = await tryGetDatabaseServer(null)
 			if dcr:
-				v = dcr.name
+				v = String.asString(dcr.name)
 			if String.isEmpty(v):
 				v = await generateUniqueDatabaseServerName()
 			return v
@@ -245,7 +245,7 @@ func updateDatabaseServer(properties as PostgreSQLServerProperties) async as dyn
 
 func updateDatabase(dbServerName as string, properties as PostgreSQLDatabaseProperties) async
 {
-	return await executeUpdate("PostgreSQL Database `" .. properties.name .. "'", func async as dynamic {
+	await executeUpdate("PostgreSQL Database `" .. properties.name .. "'", func async as dynamic {
 		var client = AzureApi.getPostgreSQLManagementFlexibleServerClient(context)
 		await client.databases.beginCreateAndWait(context.resourceGroup, dbServerName, properties.name, {
 			charset properties.charset
@@ -257,7 +257,7 @@ func updateDatabase(dbServerName as string, properties as PostgreSQLDatabaseProp
 
 func updateFirewallRule(dbServerName as string, properties as FirewallRuleProperties) async
 {
-	return await executeUpdate("Firewall rule", func async as dynamic {
+	await executeUpdate("Firewall rule", func async as dynamic {
 		var client = AzureApi.getPostgreSQLManagementFlexibleServerClient(context)
 		await client.firewallRules.beginCreateOrUpdateAndWait(context.resourceGroup, dbServerName, properties.name, {
 			startIpAddress properties.startIpAddress
@@ -269,7 +269,7 @@ func updateFirewallRule(dbServerName as string, properties as FirewallRuleProper
 
 func deleteFirewallRule(dbServerName as string, firewallRuleName as string) async
 {
-	return await executeUpdate("Remove firewall rule", func async as dynamic {
+	await executeUpdate("Remove firewall rule", func async as dynamic {
 		var client = AzureApi.getPostgreSQLManagementFlexibleServerClient(context)
 		await client.firewallRules.beginDeleteAndWait(context.resourceGroup, dbServerName, firewallRuleName)
 		return null

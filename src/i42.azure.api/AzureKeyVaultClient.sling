@@ -77,7 +77,7 @@ func getKeyVault(name as string) async as dynamic
 func getKeyVaultName async as string
 {
 	var v = await getKeyVault(null)
-	return v.name
+	return String.asString(v.name)
 }
 
 func generateUniqueKeyVaultName async as string
@@ -109,7 +109,7 @@ func updateKeyVault(properties as KeyVaultProperties) async as dynamic
 			var v as string
 			var dcr = await tryGetKeyVault(null)
 			if dcr:
-				v = dcr.name
+				v = String.asString(dcr.name)
 			if String.isEmpty(v):
 				v = await generateUniqueKeyVaultName()
 			return v
@@ -217,7 +217,7 @@ func asVaultUrl(name as string) as string
 
 func getSecretFromKeyVault(vaultName as string, secretName as string) async as string
 {
-	return await executeQuery("Get secret `" .. secretName .. "'", func async as dynamic {
+	return String.asString(await executeQuery("Get secret `" .. secretName .. "'", func async as dynamic {
 		var client = AzureApi.getKeyVaultSecretClient(context, asVaultUrl(vaultName))
 		var v = await client.getSecret(secretName)
 		if not v:
@@ -225,7 +225,7 @@ func getSecretFromKeyVault(vaultName as string, secretName as string) async as s
 		if not v.value:
 			Error.throw("secretHasNoValue", secretName)
 		return v.value
-	})
+	}))
 }
 
 func updateSecretInKeyVault(vaultName as string, secretName as string, secretValue as string) async
